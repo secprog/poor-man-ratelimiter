@@ -410,6 +410,8 @@ frontend/src/
 - **`ip-header-name`**: Header for client IP extraction (default: `X-Forwarded-For`)
 - **`antibot-enabled`**: Master switch for anti-bot features (default: `true`)
 - **`analytics-retention-days`**: Days of time-series analytics to keep (default: `7`)
+- **`traffic-logs-retention-hours`**: Hours to keep raw request logs (default: `24`)
+- **`traffic-logs-max-entries`**: Maximum entries kept in the traffic log list (default: `10000`)
 
 ### CORS
 - Configured at controller level via `@CrossOrigin` annotations

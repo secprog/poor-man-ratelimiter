@@ -222,7 +222,7 @@ export default function Settings() {
                     <h2 className="text-lg font-semibold mb-4 text-gray-800">Analytics Retention</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Retention (days)</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Time Series Retention (days)</label>
                             <input
                                 type="number"
                                 value={configs['analytics-retention-days'] || '7'}
@@ -232,6 +232,32 @@ export default function Settings() {
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
                             />
                             <p className="text-xs text-gray-500 mt-1">Controls how long time-series analytics are stored in Redis. 1-90 days recommended.</p>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Traffic Log Retention (hours)</label>
+                            <input
+                                type="number"
+                                value={configs['traffic-logs-retention-hours'] || '24'}
+                                onChange={(e) => handleChange('traffic-logs-retention-hours', e.target.value)}
+                                min="1"
+                                max="168"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">Controls how long raw request logs are kept. 1-168 hours recommended.</p>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Traffic Log Max Entries</label>
+                            <input
+                                type="number"
+                                value={configs['traffic-logs-max-entries'] || '10000'}
+                                onChange={(e) => handleChange('traffic-logs-max-entries', e.target.value)}
+                                min="1000"
+                                max="100000"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">Hard cap on list size to limit memory usage.</p>
                         </div>
                     </div>
                 </section>

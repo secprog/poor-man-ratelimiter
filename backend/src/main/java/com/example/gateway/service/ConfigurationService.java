@@ -32,7 +32,9 @@ public class ConfigurationService {
             "antibot-challenge-type", "metarefresh",
             "antibot-metarefresh-delay", "3",
                 "antibot-preact-difficulty", "1",
-                "analytics-retention-days", "7"
+                "analytics-retention-days", "7",
+                "traffic-logs-retention-hours", "24",
+                "traffic-logs-max-entries", "10000"
         );
 
     @PostConstruct
