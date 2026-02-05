@@ -128,7 +128,7 @@ def ensure_test_rule() -> bool:
         payload = {
             "pathPattern": "/test/**",
             "targetUri": TEST_ROUTE_TARGET_URI,
-            "allowedRequests": 100,
+            "allowedRequests": 1000,
             "windowSeconds": 60,
             "active": True,
             "priority": 0,
@@ -262,10 +262,10 @@ def reset_to_default_rate_limit():
         rule = rules[0].copy()
         rule_id = rule.get("id")
 
-        # Reset to safe defaults: 100 requests per 60 seconds, queueing disabled
+        # Reset to safe defaults: 1000 requests per 60 seconds, queueing disabled
         rule.update(
             {
-                "allowedRequests": 100,
+                "allowedRequests": 1000,
                 "windowSeconds": 60,
                 "queueEnabled": False,
                 "maxQueueSize": 0,
