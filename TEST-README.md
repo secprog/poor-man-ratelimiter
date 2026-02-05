@@ -54,5 +54,3 @@ python test-gateway.py
 ✅ Token reuse prevention  
 ✅ Idempotency key handling  
 ✅ Meta refresh challenge mechanism  
-
-For detailed information, see [TESTING.md](TESTING.md)

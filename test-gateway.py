@@ -870,6 +870,271 @@ def test_cross_origin_requests():
         return False
 
 
+def test_queueing_configuration():
+    """Test queueing configuration via admin API"""
+    print_header("TEST 21: Queueing Configuration")
+    
+    try:
+        admin_url = f"{GATEWAY_URL}/api/admin/rules"
+        
+        # Get existing rules
+        response = requests.get(admin_url, timeout=10)
+        if response.status_code != 200:
+            print_failure(f"Failed to get rules: {response.status_code}")
+            return False
+        
+        rules = response.json()
+        if not rules:
+            print_failure("No rules found")
+            return False
+        
+        rule_id = rules[0].get('id')
+        print_info(f"Using rule ID: {rule_id}")
+        
+        # Enable queueing
+        queue_config = {
+            "queueEnabled": True,
+            "maxQueueSize": 2,
+            "delayPerRequestMs": 500
+        }
+        
+        response = requests.patch(
+            f"{admin_url}/{rule_id}/queue",
+            json=queue_config,
+            timeout=10
+        )
+        
+        if response.status_code != 200:
+            print_failure(f"Failed to set queue config: {response.status_code}")
+            return False
+        
+        updated_rule = response.json()
+        
+        checks = [
+            ("Queue enabled", updated_rule.get('queueEnabled') == True),
+            ("Max queue size", updated_rule.get('maxQueueSize') == 2),
+            ("Delay per request", updated_rule.get('delayPerRequestMs') == 500),
+        ]
+        
+        all_passed = True
+        for check_name, passed in checks:
+            if passed:
+                print_success(check_name)
+            else:
+                print_failure(check_name)
+                all_passed = False
+        
+        return all_passed
+        
+    except requests.exceptions.RequestException as e:
+        print_failure(f"Request failed: {e}")
+        return False
+
+
+def test_queueing_behavior():
+    """Test that requests are queued instead of rejected"""
+    print_header("TEST 22: Queueing Behavior")
+    
+    try:
+        admin_url = f"{GATEWAY_URL}/api/admin/rules"
+        
+        # Get rule and configure for tight rate limit
+        response = requests.get(admin_url, timeout=10)
+        if response.status_code != 200:
+            return False
+        
+        rules = response.json()
+        rule = rules[0].copy()
+        rule_id = rule.get('id')
+        
+        # Set tight limit: 2 requests per 10 seconds, queue 2 more
+        rule.update({
+            "allowedRequests": 2,
+            "windowSeconds": 10,
+            "queueEnabled": True,
+            "maxQueueSize": 2,
+            "delayPerRequestMs": 300
+        })
+        
+        response = requests.put(
+            f"{admin_url}/{rule_id}",
+            json=rule,
+            timeout=10
+        )
+        
+        if response.status_code != 200:
+            print_failure(f"Failed to update rule: {response.status_code}")
+            return False
+        
+        print_info("Rate limit: 2 requests per 10s, queue 2 with 300ms delay")
+        time.sleep(1)  # Wait for rule to be reloaded
+        
+        # Send 5 rapid requests
+        print_info("Sending 5 rapid requests...")
+        results = {}
+        for i in range(5):
+            response = requests.get(f"{GATEWAY_URL}/test/api/hello", timeout=5)
+            results[i+1] = {
+                "status": response.status_code,
+                "queued": response.headers.get("X-RateLimit-Queued") == "true",
+                "delayed": response.headers.get("X-RateLimit-Delay-Ms") is not None
+            }
+        
+        # Analyze results
+        immediate = sum(1 for r in results.values() if r['status'] == 200 and not r['queued'])
+        queued = sum(1 for r in results.values() if r['status'] == 200 and r['queued'])
+        rejected = sum(1 for r in results.values() if r['status'] == 429)
+        
+        print_info(f"Results: {immediate} immediate, {queued} queued, {rejected} rejected")
+        
+        checks = [
+            ("At least 2 immediate requests allowed", immediate >= 2),
+            ("Some requests were queued", queued > 0),
+            ("Queued had delay headers", all(r['delayed'] for r in list(results.values())[2:2+queued]) if queued > 0 else True),
+        ]
+        
+        all_passed = True
+        for check_name, passed in checks:
+            if passed:
+                print_success(check_name)
+            else:
+                print_failure(check_name)
+                all_passed = False
+        
+        return all_passed
+        
+    except Exception as e:
+        print_failure(f"Test failed: {e}")
+        return False
+
+
+def test_queueing_delay_timing():
+    """Test that queueing delays are actually applied"""
+    print_header("TEST 23: Queueing Delay Timing")
+    
+    try:
+        admin_url = f"{GATEWAY_URL}/api/admin/rules"
+        
+        # Get rule and configure for measurable delays
+        response = requests.get(admin_url, timeout=10)
+        rules = response.json()
+        rule = rules[0].copy()
+        rule_id = rule.get('id')
+        
+        # 1 request per 5 seconds, queue 1 more with 1 second delay
+        rule.update({
+            "allowedRequests": 1,
+            "windowSeconds": 5,
+            "queueEnabled": True,
+            "maxQueueSize": 1,
+            "delayPerRequestMs": 1000
+        })
+        
+        response = requests.put(f"{admin_url}/{rule_id}", json=rule, timeout=10)
+        if response.status_code != 200:
+            return False
+        
+        time.sleep(1)
+        print_info("Rate limit: 1 request per 5s, queue 1 more with 1000ms delay")
+        
+        # Send 2 requests and measure timing
+        timings = []
+        for i in range(2):
+            start = time.time()
+            response = requests.get(f"{GATEWAY_URL}/test/api/hello", timeout=5)
+            elapsed = (time.time() - start) * 1000  # Convert to ms
+            
+            timings.append({
+                "request": i+1,
+                "status": response.status_code,
+                "elapsed_ms": int(elapsed),
+                "queued": response.headers.get("X-RateLimit-Queued") == "true",
+                "delay_ms": response.headers.get("X-RateLimit-Delay-Ms")
+            })
+        
+        print_info(f"Request 1: {timings[0]['elapsed_ms']}ms (immediate)")
+        print_info(f"Request 2: {timings[1]['elapsed_ms']}ms (queued, delay={timings[1].get('delay_ms')}ms)")
+        
+        checks = [
+            ("Second request delayed (approx 1000ms)", 800 <= timings[1]['elapsed_ms'] <= 1500),
+            ("Queued status indicated", timings[1]['queued']),
+            ("Both requests successful", all(t['status'] == 200 for t in timings)),
+        ]
+        
+        all_passed = True
+        for check_name, passed in checks:
+            if passed:
+                print_success(check_name)
+            else:
+                print_failure(check_name)
+                all_passed = False
+        
+        return all_passed
+        
+    except Exception as e:
+        print_failure(f"Test failed: {e}")
+        return False
+
+
+def test_queueing_disabled_reverts_to_rejection():
+    """Test that disabling queueing reverts to normal rejection behavior"""
+    print_header("TEST 24: Disable Queueing")
+    
+    try:
+        admin_url = f"{GATEWAY_URL}/api/admin/rules"
+        
+        # Get rule and disable queueing
+        response = requests.get(admin_url, timeout=10)
+        rules = response.json()
+        rule = rules[0].copy()
+        rule_id = rule.get('id')
+        
+        rule.update({
+            "allowedRequests": 2,
+            "windowSeconds": 5,
+            "queueEnabled": False,
+            "maxQueueSize": 0,
+            "delayPerRequestMs": 0
+        })
+        
+        response = requests.put(f"{admin_url}/{rule_id}", json=rule, timeout=10)
+        if response.status_code != 200:
+            return False
+        
+        time.sleep(1)
+        print_info("Queueing disabled, limit 2 per 5 seconds")
+        
+        # Send 5 rapid requests - should get 2 allowed, 3 rejected
+        responses = []
+        for i in range(5):
+            response = requests.get(f"{GATEWAY_URL}/test/api/hello", timeout=2)
+            responses.append(response.status_code)
+        
+        allowed = sum(1 for status in responses if status == 200)
+        rejected = sum(1 for status in responses if status == 429)
+        
+        print_info(f"Results: {allowed} allowed, {rejected} rejected")
+        
+        checks = [
+            ("Correct number allowed (2)", allowed == 2),
+            ("Correct number rejected (3)", rejected == 3),
+        ]
+        
+        all_passed = True
+        for check_name, passed in checks:
+            if passed:
+                print_success(check_name)
+            else:
+                print_failure(check_name)
+                all_passed = False
+        
+        return all_passed
+        
+    except Exception as e:
+        print_failure(f"Test failed: {e}")
+        return False
+
+
 def print_summary(results: Dict[str, bool]):
     """Print test summary"""
     print_header("TEST SUMMARY")
@@ -927,6 +1192,10 @@ def main():
     results["Token Format Validation"] = test_token_format_validation()
     results["Gateway Header Forwarding"] = test_gateway_headers()
     results["Cross-Origin Support"] = test_cross_origin_requests()
+    results["Queueing Configuration"] = test_queueing_configuration()
+    results["Queueing Behavior"] = test_queueing_behavior()
+    results["Queueing Delay Timing"] = test_queueing_delay_timing()
+    results["Disable Queueing"] = test_queueing_disabled_reverts_to_rejection()
     
     # Print summary
     print_summary(results)

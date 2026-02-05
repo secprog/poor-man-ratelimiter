@@ -2,8 +2,14 @@
  * WebSocket utility for real-time analytics updates
  */
 
+// Avoid referencing window/WebSocket during SSR or build-time
+const isBrowser = typeof window !== 'undefined';
+const defaultUrl = isBrowser
+  ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws/analytics`
+  : 'ws://localhost:8080/api/ws/analytics';
+
 class AnalyticsWebSocket {
-  constructor(url = 'ws://localhost:8080/api/ws/analytics') {
+  constructor(url = defaultUrl) {
     this.url = url;
     this.ws = null;
     this.listeners = [];
@@ -15,6 +21,11 @@ class AnalyticsWebSocket {
   }
 
   connect() {
+    if (!isBrowser || typeof WebSocket === 'undefined') {
+      // In non-browser environments (SSR, tests) just skip connection
+      return;
+    }
+
     if (this.ws || this.isConnecting) return;
     
     this.isConnecting = true;
@@ -130,9 +141,7 @@ class AnalyticsWebSocket {
   }
 }
 
-// Create singleton instance
-const analyticsWs = new AnalyticsWebSocket(
-  `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws/analytics`
-);
+// Create singleton instance (safe for SSR/build)
+const analyticsWs = new AnalyticsWebSocket(defaultUrl);
 
 export default analyticsWs;
