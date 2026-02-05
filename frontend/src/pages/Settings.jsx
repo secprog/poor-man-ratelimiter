@@ -55,7 +55,7 @@ export default function Settings() {
             const headers = getAntiBotHeaders(tokenData);
 
             await Promise.all(Object.entries(configs).map(([key, value]) =>
-                api.post(`/config/${key}`, { value }, { headers })
+                adminApi.post(`/config/${key}`, { value }, { headers })
             ));
             alert("Settings saved successfully!");
         } catch (err) {
@@ -213,6 +213,25 @@ export default function Settings() {
                                     <p className="text-xs text-gray-500 mt-1">Seconds to wait before browser is refreshed after token is set.</p>
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </section>
+
+                {/* Analytics Retention */}
+                <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                    <h2 className="text-lg font-semibold mb-4 text-gray-800">Analytics Retention</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Retention (days)</label>
+                            <input
+                                type="number"
+                                value={configs['analytics-retention-days'] || '7'}
+                                onChange={(e) => handleChange('analytics-retention-days', e.target.value)}
+                                min="1"
+                                max="90"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">Controls how long time-series analytics are stored in Redis. 1-90 days recommended.</p>
                         </div>
                     </div>
                 </section>

@@ -393,21 +393,15 @@ frontend/src/
     └── websocket.js        # WebSocket client wrapper
 ```
 
-### Database Schema
-```sql
--- Rate limiting
-rate_limit_policies     -- Route-based policy definitions
-rate_limit_rules        -- Path-based rules with queue config
-rate_limit_state        -- Token bucket state (key, tokens, refill time)
-request_counters        -- Per-rule, per-IP counters
-
--- Configuration
-system_config           -- Key-value settings (cached by ConfigurationService)
-
--- Analytics
-traffic_logs            -- Request history (timestamp, path, IP, status, allowed)
-request_stats           -- Time-windowed aggregates (allowed/blocked counts)
-```
+### Redis Keyspace
+- `rate_limit_policies` (hash) - Route-based policy definitions
+- `rate_limit_rules` (hash) - Path-based rules with queue config
+- `rate_limit_state:<key>` (hash) - Token bucket state
+- `request_counter:<ruleId>:<identifier>` (string JSON, TTL)
+- `system_config` (hash) - Key-value settings
+- `traffic_logs` (list) - Recent request log entries (JSON)
+- `request_stats:<minute>` (hash) - Time-windowed aggregates
+- `request_stats:index` (zset) - Minute buckets for time series
 
 ## 🔒 Security Considerations
 
@@ -415,14 +409,15 @@ request_stats           -- Time-windowed aggregates (allowed/blocked counts)
 - **`trust-x-forwarded-for`**: Set to `true` only behind trusted proxy (default: `false`)
 - **`ip-header-name`**: Header for client IP extraction (default: `X-Forwarded-For`)
 - **`antibot-enabled`**: Master switch for anti-bot features (default: `true`)
+- **`analytics-retention-days`**: Days of time-series analytics to keep (default: `7`)
 
 ### CORS
 - Configured at controller level via `@CrossOrigin` annotations
 - Frontend proxies `/api/**` to backend via Nginx (see `frontend/nginx.conf`)
 
 ### Credentials
-- Database credentials in `application.yml` and `docker-compose.yml`
-- Production: Use environment variables and secrets management
+- Redis connection config in `application.yml` and `docker-compose.yml`
+- Production: Use environment variables, ACLs, and private networking
 
 ## 🐛 Troubleshooting
 

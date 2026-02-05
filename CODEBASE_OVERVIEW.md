@@ -3,7 +3,7 @@
 Purpose: API gateway with configurable rate limiting, anti-bot defenses, analytics, and admin UI.
 
 Architecture:
-- Backend: Spring Boot 3 / Spring Cloud Gateway, R2DBC + Postgres for config/state, Caffeine caches for tokens and counters.
+- Backend: Spring Boot 3 / Spring Cloud Gateway, reactive Redis for config/state, Caffeine caches for tokens and counters.
 - Frontend: React (Vite + Tailwind) admin console served via Nginx container.
 - Observability: simple analytics service feeding dashboards and real-time WebSocket updates.
 
@@ -12,8 +12,8 @@ Backend key pieces:
 - `filter/AntiBotFilter.java`: honeypot, time-to-submit, one-time form token, idempotency keys; can consume challenge cookie.
 - `controller/TokenController.java`: issues form tokens and challenges (meta-refresh, JS, Preact).
 - `controller/RateLimitRuleController.java`, `RateLimiterService.java`: CRUD and enforcement logic for rate-limit policies/rules.
-- `service/ConfigurationService.java`: cached system config with DB backing (`system_config` table).
-- Schema seeds defaults and a demo rule/policy in `src/main/resources/schema.sql`.
+- `service/ConfigurationService.java`: cached system config backed by Redis hash entries.
+- Defaults are seeded on startup via `RedisBootstrapService` and config defaults.
 
 Frontend key pieces:
 - `src/App.jsx` with sidebar navigation (Dashboard, Analytics, Policies, Settings).
@@ -24,8 +24,8 @@ Frontend key pieces:
 - `api.js`: axios client pointed at `/api` (Nginx proxied).
 
 Deployment/build:
-- Docker: `frontend/Dockerfile` builds Vite bundle then serves via Nginx; `backend` image built via Dockerfile (not shown here). `docker-compose.yml` wires postgres, test-server, backend, frontend.
-- Default ports: backend `8080`, frontend `3000`, postgres `5432`, test-server `9000`.
+- Docker: `frontend/Dockerfile` builds Vite bundle then serves via Nginx; `backend` image built via Dockerfile (not shown here). `docker-compose.yml` wires redis, test-server, backend, frontend.
+- Default ports: backend `8080`, frontend `3000`, redis `6379`, test-server `9000`.
 
 Anti-bot challenges:
 - Meta-refresh (HTML only), JS token, and new Preact challenge that sets `X-Form-Token-Challenge` cookie then reloads after configurable seconds (`antibot-preact-difficulty`).

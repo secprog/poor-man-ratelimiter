@@ -33,23 +33,8 @@ The Rate Limiter Gateway now supports rate limiting based on JWT (JSON Web Token
 - Falls back to IP if JWT extraction fails
 - Tracks rate limits per identifier (JWT claims or IP)
 
-#### 4. Database Schema
-```sql
-CREATE TABLE IF NOT EXISTS rate_limit_rules (
-    id UUID PRIMARY KEY,
-    path_pattern VARCHAR(255) NOT NULL,
-    allowed_requests INTEGER NOT NULL,
-    window_seconds INTEGER NOT NULL,
-    active BOOLEAN DEFAULT TRUE,
-    queue_enabled BOOLEAN DEFAULT FALSE,
-    max_queue_size INT DEFAULT 0,
-    delay_per_request_ms INT DEFAULT 100,
-    -- JWT fields
-    jwt_enabled BOOLEAN DEFAULT FALSE,
-    jwt_claims TEXT,  -- JSON array: ["sub", "tenant_id", "custom_claim"]
-    jwt_claim_separator VARCHAR(10) DEFAULT ':'
-);
-```
+#### 4. Redis Storage
+JWT-enabled rules are stored in Redis using hash entries under `rate_limit_rules`. Request counters are stored as expiring keys under `request_counter:<ruleId>:<identifier>`.
 
 ### Frontend Components
 
@@ -94,23 +79,9 @@ curl -X POST http://localhost:8080/api/admin/rules \
   }'
 ```
 
-#### Via SQL
+#### Via Admin UI
 
-```sql
-INSERT INTO rate_limit_rules (
-    id, path_pattern, allowed_requests, window_seconds, active,
-    jwt_enabled, jwt_claims, jwt_claim_separator
-) VALUES (
-    gen_random_uuid(),
-    '/api/tenant/**',
-    100,
-    60,
-    true,
-    true,
-    '["sub", "tenant_id"]',
-    ':'
-);
-```
+Use the Policies page to enable JWT-based limiting and set claim config.
 
 ### JWT Token Format
 
@@ -285,14 +256,13 @@ curl http://localhost:8080/api/admin/rules/active | jq '.'
 
 ### View Request Counters
 
-```sql
--- Show all identifiers being tracked
-SELECT rule_id, client_ip, request_count, window_start 
-FROM request_counters 
-ORDER BY window_start DESC;
+Use Redis keys for counters:
 
--- Note: 'client_ip' column stores either IP or JWT identifier
+```bash
+redis-cli --scan --pattern "request_counter:*" | head -n 20
 ```
+
+Values are JSON objects with `ruleId`, `clientIp`, `requestCount`, and `windowStart`.
 
 ### Backend Logs
 
@@ -331,20 +301,7 @@ Queues are tracked per JWT identifier instead of per IP.
 
 ### Works with Analytics
 
-Analytics track rate-limited requests regardless of whether JWT or IP is used. The identifier is stored in the `client_ip` column:
-
-```sql
-SELECT path, client_ip, status_code, allowed 
-FROM traffic_logs 
-WHERE timestamp > NOW() - INTERVAL '1 hour';
-```
-
-Output:
-```
-path            | client_ip               | status_code | allowed
-/api/data       | user123:acme-corp       | 429         | false
-/api/data       | 192.168.1.100           | 200         | true
-```
+Analytics track rate-limited requests regardless of whether JWT or IP is used. Recent logs are kept in Redis list `traffic_logs` (JSON entries).
 
 ## Troubleshooting
 
@@ -400,19 +357,21 @@ Rate limiting performance (1000 concurrent requests):
 1. **Minimize claims**: Use 1-2 claims for best performance
 2. **Short claim names**: `sub` is faster than `user_identifier_uuid`
 3. **Enable caching**: Gateway caches parsed rules in memory
-4. **Use connection pooling**: Database counters benefit from R2DBC pooling
+4. **Keep Redis warm**: Avoid cold starts by preloading rules/policies
 
 ## Migration Guide
 
 ### From IP-Based to JWT-Based
 
-**Step 1:** Add JWT fields to existing rule
-```sql
-UPDATE rate_limit_rules 
-SET jwt_enabled = true, 
-    jwt_claims = '["sub"]', 
-    jwt_claim_separator = ':'
-WHERE path_pattern = '/api/users/**';
+**Step 1:** Update rule via admin API
+```bash
+curl -X PUT http://localhost:8080/api/admin/rules/{id} \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jwtEnabled": true,
+    "jwtClaims": "[\"sub\"]",
+    "jwtClaimSeparator": ":"
+  }'
 ```
 
 **Step 2:** Restart gateway or refresh rules
@@ -426,11 +385,9 @@ docker compose logs backend -f | grep "falling back to IP"
 ```
 
 **Step 4:** Verify counters show JWT identifiers
-```sql
-SELECT * FROM request_counters WHERE client_ip NOT LIKE '%\.%';
+```bash
+redis-cli --scan --pattern "request_counter:*" | head -n 20
 ```
-
-(Identifiers without dots are JWT-based; IPs have dots)
 
 ## API Reference
 

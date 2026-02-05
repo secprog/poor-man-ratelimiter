@@ -7,9 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 API gateway with configurable rate limiting, anti-bot defenses, analytics, and admin UI.
 
 **Stack:**
-- Backend: Spring Boot 3 / Spring Cloud Gateway (reactive WebFlux), Postgres (R2DBC), Caffeine caches
+- Backend: Spring Boot 3 / Spring Cloud Gateway (reactive WebFlux), Redis (reactive), Caffeine caches
 - Frontend: React 18 + Vite + Tailwind CSS, served via Nginx
-- Infrastructure: Docker Compose (postgres, backend, frontend, test-server)
+- Infrastructure: Docker Compose (redis, backend, frontend, test-server)
 
 ## Common Commands
 
@@ -85,7 +85,7 @@ python run-tests.py
 
 **Services:**
 - `service/RateLimiterService.java` - Token-bucket logic with queue management; uses ConcurrentHashMap with AtomicInteger for thread-safe queue depth tracking
-- `service/ConfigurationService.java` - Cached system config backed by `system_config` table
+- `service/ConfigurationService.java` - Cached system config backed by Redis
 - `service/PolicyService.java` - Rate limit policy management
 - `service/AnalyticsService.java` - Traffic statistics and metrics
 
@@ -95,9 +95,9 @@ python run-tests.py
 - `model/SystemConfig.java` - Key-value configuration storage
 
 **Data Layer:**
-- R2DBC repositories for reactive/non-blocking database access
-- Schema initialized from `src/main/resources/schema.sql` (seeds defaults + demo rule)
-- Postgres connection configured in `application.yml` and `docker-compose.yml`
+- Redis stores for reactive/non-blocking data access
+- Defaults seeded on startup (`RedisBootstrapService`) and config defaults
+- Redis connection configured in `application.yml` and `docker-compose.yml`
 
 ### Frontend Core Components
 
@@ -176,7 +176,7 @@ See `QUEUEING_IMPLEMENTATION.md` for detailed design notes.
 **Critical: Avoid blocking in request paths**
 - This is a Spring WebFlux application; filters and services must be non-blocking
 - Use reactive types: `Mono<T>`, `Flux<T>`
-- R2DBC for async database access (not JDBC)
+- Redis reactive APIs for async data access
 - When adding delays, use `Mono.delay(Duration.ofMillis(x))` not `Thread.sleep()`
 - Chain operations with `.flatMap()`, `.map()`, `.filter()` etc.
 
@@ -196,12 +196,12 @@ See `QUEUEING_IMPLEMENTATION.md` for detailed design notes.
 
 - Frontend: 3000 (Nginx serving React app)
 - Backend: 8080 (Spring Gateway)
-- Postgres: 5432
+- Redis: 6379
 - Test Server: 9000 (Flask)
 
 ## Security Considerations
 
 - `trust-x-forwarded-for` in `application.yml` is sensitive (affects IP detection for rate limiting)
 - CORS configured at controller level
-- Postgres credentials in `application.yml` and `docker-compose.yml`
+- Redis connection config in `application.yml` and `docker-compose.yml`
 - Form tokens stored in Caffeine caches (in-memory, ephemeral)

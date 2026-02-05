@@ -39,25 +39,15 @@ curl -X PATCH http://localhost:8080/api/admin/rules/{rule-id}/body-limit \
 }
 ```
 
-### Database Schema
+### Redis Storage
 
-New columns added to `rate_limit_rules` table:
-
-- `body_limit_enabled` (BOOLEAN): Enable/disable body-based rate limiting
-- `body_field_path` (VARCHAR): JSON path to extract (e.g., "user_id", "api_key", "user.id")
-- `body_limit_type` (VARCHAR): How to use the field ("replace_ip" or "combine_with_ip")
+Body-based rule fields are stored alongside each rule in Redis under `rate_limit_rules`.
 
 ## Usage Examples
 
 ### Example 1: Rate Limit by User ID (Replace IP)
 
-```sql
-UPDATE rate_limit_rules 
-SET body_limit_enabled = true,
-    body_field_path = 'user_id',
-    body_limit_type = 'replace_ip'
-WHERE path_pattern = '/api/create-order';
-```
+Use the admin API to update the rule with body-based settings (example above).
 
 **Request**:
 ```bash
@@ -70,13 +60,7 @@ curl -X POST http://localhost:8080/api/create-order \
 
 ### Example 2: Rate Limit by API Key (Combine with IP)
 
-```sql
-UPDATE rate_limit_rules 
-SET body_limit_enabled = true,
-    body_field_path = 'api_key',
-    body_limit_type = 'combine_with_ip'
-WHERE path_pattern = '/api/deploy';
-```
+Use `bodyLimitType: "combine_with_ip"` and the appropriate field path in the PATCH request.
 
 **Behavior**: Rate limit will be tracked per combination of `(IP_ADDRESS:api_key)`. Rate limit counters are separate for each IP + API key combination.
 

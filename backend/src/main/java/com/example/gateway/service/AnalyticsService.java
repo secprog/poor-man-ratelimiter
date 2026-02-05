@@ -29,12 +29,12 @@ public class AnalyticsService {
     private final ReactiveStringRedisTemplate redisTemplate;
     private final AnalyticsBroadcaster broadcaster;
     private final PolicyService policyService;
+    private final ConfigurationService configService;
 
     // In-memory counters for buffering
     private final AtomicLong pendingAllowed = new AtomicLong(0);
     private final AtomicLong pendingBlocked = new AtomicLong(0);
 
-    private static final Duration STATS_RETENTION = Duration.ofDays(7);
     private static final String ALLOWED_FIELD = "allowed";
     private static final String BLOCKED_FIELD = "blocked";
 
@@ -68,12 +68,14 @@ public class AnalyticsService {
         long minuteBucket = now.getEpochSecond() / 60;
         String statsKey = RedisKeys.requestStatsKey(minuteBucket);
 
+        Duration retention = getRetentionDuration();
+
         Mono.when(
                 hashOps().increment(statsKey, ALLOWED_FIELD, allowed),
                 hashOps().increment(statsKey, BLOCKED_FIELD, blocked),
                 zsetOps().add(RedisKeys.REQUEST_STATS_INDEX, String.valueOf(minuteBucket), minuteBucket),
-                redisTemplate.expire(statsKey, STATS_RETENTION),
-                pruneOldStats(minuteBucket))
+            redisTemplate.expire(statsKey, retention),
+            pruneOldStats(minuteBucket, retention))
             .subscribe(
                 null,
                 error -> log.error("Failed to flush analytics stats", error));
@@ -160,8 +162,8 @@ public class AnalyticsService {
         }
     }
 
-    private Mono<Long> pruneOldStats(long currentMinute) {
-        long retentionMinutes = STATS_RETENTION.toMinutes();
+    private Mono<Long> pruneOldStats(long currentMinute, Duration retention) {
+        long retentionMinutes = retention.toMinutes();
         long minMinute = currentMinute - retentionMinutes;
         if (minMinute <= 0) {
             return Mono.just(0L);
@@ -169,6 +171,12 @@ public class AnalyticsService {
         return zsetOps().removeRangeByScore(
             RedisKeys.REQUEST_STATS_INDEX,
             Range.closed(0.0, (double) (minMinute - 1)));
+    }
+
+    private Duration getRetentionDuration() {
+        long days = configService.getLong("analytics-retention-days", 7);
+        long clampedDays = Math.max(1, Math.min(days, 90));
+        return Duration.ofDays(clampedDays);
     }
 
     public record StatsSummary(Long allowed, Long blocked) {

@@ -31,7 +31,8 @@ public class ConfigurationService {
             "session-cookie-name", "JSESSIONID",
             "antibot-challenge-type", "metarefresh",
             "antibot-metarefresh-delay", "3",
-            "antibot-preact-difficulty", "1"
+                "antibot-preact-difficulty", "1",
+                "analytics-retention-days", "7"
         );
 
     @PostConstruct
