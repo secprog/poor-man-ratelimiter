@@ -76,18 +76,37 @@ public class RateLimiterService {
                     LocalDateTime windowEnd = counter.getWindowStart().plusSeconds(rule.getWindowSeconds());
 
                     if (now.isAfter(windowEnd)) {
-                        // Reset
-                        counter.setWindowStart(now);
-                        counter.setRequestCount(1);
-                        return counterRepository.save(counter).thenReturn(true);
+                        // Reset and allow
+                        return updateCounter(rule.getId(), clientIp, 1, now).thenReturn(true);
                     } else {
                         if (counter.getRequestCount() < rule.getAllowedRequests()) {
-                            counter.setRequestCount(counter.getRequestCount() + 1);
-                            return counterRepository.save(counter).thenReturn(true);
+                            // Increment and allow
+                            return updateCounter(rule.getId(), clientIp, counter.getRequestCount() + 1, counter.getWindowStart())
+                                    .thenReturn(true);
                         } else {
+                            // Rate limit exceeded
                             return Mono.just(false);
                         }
                     }
+                });
+    }
+
+    private Mono<Void> updateCounter(UUID ruleId, String clientIp, int newCount, LocalDateTime windowStart) {
+        // Use raw SQL upsert instead of repository.save() to avoid R2DBC's
+        // confusing entity detection logic
+        return databaseClient.sql(
+                "INSERT INTO request_counters (rule_id, client_ip, request_count, window_start) " +
+                "VALUES (:rule_id, :client_ip, :request_count, :window_start) " +
+                "ON CONFLICT (rule_id, client_ip) DO UPDATE SET request_count = :request_count, window_start = :window_start")
+                .bind("rule_id", ruleId)
+                .bind("client_ip", clientIp)
+                .bind("request_count", newCount)
+                .bind("window_start", windowStart)
+                .then()
+                .onErrorResume(e -> {
+                    // Log but don't fail the request
+                    log.warn("Failed to update counter: {}", e.getMessage());
+                    return Mono.empty();
                 });
     }
 

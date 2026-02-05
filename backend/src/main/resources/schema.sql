@@ -72,3 +72,8 @@ CREATE TABLE IF NOT EXISTS request_counters (
 INSERT INTO rate_limit_policies (route_pattern, limit_type, replenish_rate, burst_capacity, requested_tokens)
 VALUES ('/**', 'IP_BASED', 10, 20, 1)
 ON CONFLICT DO NOTHING;
+
+-- Insert a default rate limit rule for testing (100 requests per 60 seconds)
+INSERT INTO rate_limit_rules (id, path_pattern, allowed_requests, window_seconds, active)
+VALUES ('00000000-0000-0000-0000-000000000001', '/**', 100, 60, true)
+ON CONFLICT DO NOTHING;
