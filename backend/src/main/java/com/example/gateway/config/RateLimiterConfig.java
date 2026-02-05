@@ -56,38 +56,55 @@ public class RateLimiterConfig {
     private String resolveKey(ServerWebExchange exchange, RateLimitPolicy policy) {
         String type = policy.getLimitType();
         if (type == null)
-            return getClientIp(exchange);
+            return getClientIp(exchange, policy);
 
         switch (type.toUpperCase()) {
             case "USER_BASED":
-                // Try Principal -> Header -> Cookie
-                String userIdHeader = configService.getConfig("user-id-header-name", "X-User-Id");
+                // Try Principal -> Header (per-policy or global) -> Cookie
+                String userIdHeader = policy.getHeaderName() != null 
+                    ? policy.getHeaderName()
+                    : configService.getConfig("user-id-header-name", "X-User-Id");
                 return exchange.getPrincipal()
                         .map(java.security.Principal::getName)
                         .switchIfEmpty(Mono.justOrEmpty(exchange.getRequest().getHeaders().getFirst(userIdHeader)))
                         // Add more fallback logic here if needed (e.g. JWT parsing)
-                        .defaultIfEmpty(getClientIp(exchange)) // Fallback to IP if no user ID found
-                        .block(); // Blocking inside non-blocking context is bad, but here strictly for
-                                  // KeyResolver...
-            // Wait, KeyResolver returns Mono<String>. I should flatten this structure.
+                        .defaultIfEmpty(getClientIp(exchange, policy)) // Fallback to IP if no user ID found
+                        .block();
 
             case "API_KEY":
-                String apiKeyHeader = configService.getConfig("api-key-header-name", "X-API-Key");
+                String apiKeyHeader = policy.getHeaderName() != null 
+                    ? policy.getHeaderName()
+                    : configService.getConfig("api-key-header-name", "X-API-Key");
                 String apiKey = exchange.getRequest().getHeaders().getFirst(apiKeyHeader);
-                return StringUtils.hasText(apiKey) ? apiKey : getClientIp(exchange); // Fallback to IP
+                return StringUtils.hasText(apiKey) ? apiKey : getClientIp(exchange, policy);
+
+            case "SESSION_BASED":
+                // Extract session cookie value (per-policy or global)
+                String sessionCookieName = policy.getSessionCookieName() != null
+                    ? policy.getSessionCookieName()
+                    : configService.getConfig("session-cookie-name", "JSESSIONID");
+                var sessionCookie = exchange.getRequest().getCookies().getFirst(sessionCookieName);
+                if (sessionCookie != null && StringUtils.hasText(sessionCookie.getValue())) {
+                    return sessionCookie.getValue();
+                }
+                return getClientIp(exchange, policy);
 
             case "GLOBAL":
                 return "global";
 
             case "IP_BASED":
             default:
-                return getClientIp(exchange);
+                return getClientIp(exchange, policy);
         }
     }
 
-    private String getClientIp(ServerWebExchange exchange) {
-        boolean trustProxy = configService.getBoolean("trust-x-forwarded-for", false);
-        String ipHeaderName = configService.getConfig("ip-header-name", "X-Forwarded-For");
+    private String getClientIp(ServerWebExchange exchange, RateLimitPolicy policy) {
+        boolean trustProxy = policy.getTrustProxy() != null 
+            ? policy.getTrustProxy()
+            : configService.getBoolean("trust-x-forwarded-for", false);
+        String ipHeaderName = policy.getHeaderName() != null
+            ? policy.getHeaderName()
+            : configService.getConfig("ip-header-name", "X-Forwarded-For");
 
         if (trustProxy) {
             String ipHeaderValue = exchange.getRequest().getHeaders().getFirst(ipHeaderName);

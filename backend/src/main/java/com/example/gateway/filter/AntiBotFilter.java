@@ -85,6 +85,14 @@ public class AntiBotFilter implements GlobalFilter, Ordered {
         String formLoadTime = exchange.getRequest().getHeaders().getFirst("X-Form-Load-Time");
         String honeypotValue = exchange.getRequest().getHeaders().getFirst("X-Honeypot");
         String idempotencyKey = exchange.getRequest().getHeaders().getFirst("X-Idempotency-Key");
+        
+        // Also check for form token in cookie (from meta refresh challenge)
+        if (formToken == null) {
+            var tokenCookie = exchange.getRequest().getCookies().getFirst("X-Form-Token-Challenge");
+            if (tokenCookie != null) {
+                formToken = tokenCookie.getValue();
+            }
+        }
 
         // 1. Honeypot check - if filled, it's a bot
         if (honeypotValue != null && !honeypotValue.isEmpty()) {
@@ -92,7 +100,7 @@ public class AntiBotFilter implements GlobalFilter, Ordered {
             return rejectRequest(exchange, "Bot detected");
         }
 
-        // 2. Time-to-submit check
+        // 2. Time-to-submit check (only if header is provided)
         if (formLoadTime != null) {
             try {
                 long loadTime = Long.parseLong(formLoadTime);

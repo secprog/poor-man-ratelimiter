@@ -18,7 +18,10 @@ export default function Policies() {
         limitType: 'IP_BASED',
         replenishRate: 10,
         burstCapacity: 20,
-        requestedTokens: 1
+        requestedTokens: 1,
+        headerName: '',
+        sessionCookieName: '',
+        trustProxy: false
     });
 
     useEffect(() => {
@@ -50,7 +53,10 @@ export default function Policies() {
             limitType: 'IP_BASED',
             replenishRate: 10,
             burstCapacity: 20,
-            requestedTokens: 1
+            requestedTokens: 1,
+            headerName: '',
+            sessionCookieName: '',
+            trustProxy: false
         });
         setModalOpen(true);
         await prepareForm();
@@ -63,7 +69,10 @@ export default function Policies() {
             limitType: policy.limitType,
             replenishRate: policy.replenishRate,
             burstCapacity: policy.burstCapacity,
-            requestedTokens: policy.requestedTokens
+            requestedTokens: policy.requestedTokens,
+            headerName: policy.headerName || '',
+            sessionCookieName: policy.sessionCookieName || '',
+            trustProxy: policy.trustProxy || false
         });
         setModalOpen(true);
         await prepareForm();
@@ -116,10 +125,10 @@ export default function Policies() {
     };
 
     const handleInputChange = (e) => {
-        const { name, value, type } = e.target;
+        const { name, value, type, checked } = e.target;
         setFormData(prev => ({
             ...prev,
-            [name]: type === 'number' ? parseInt(value, 10) : value
+            [name]: type === 'checkbox' ? checked : type === 'number' ? parseInt(value, 10) : value
         }));
     };
 
@@ -244,9 +253,94 @@ export default function Policies() {
                                     <option value="IP_BASED">IP Based (Default)</option>
                                     <option value="USER_BASED">User Based (Principal / X-User-Id)</option>
                                     <option value="API_KEY">API Key (X-API-Key)</option>
+                                    <option value="SESSION_BASED">Session Cookie</option>
                                     <option value="GLOBAL">Global (All Requests)</option>
                                 </select>
                             </div>
+
+                            {/* Per-Policy Configuration Fields */}
+                            {formData.limitType === 'IP_BASED' && (
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            IP Header Name (optional)
+                                        </label>
+                                        <input
+                                            type="text"
+                                            name="headerName"
+                                            value={formData.headerName}
+                                            onChange={handleInputChange}
+                                            placeholder="e.g., X-Forwarded-For (leave empty for global default)"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">Overrides global ip-header-name setting for this rule</p>
+                                    </div>
+                                    <div>
+                                        <label className="flex items-center space-x-2">
+                                            <input
+                                                type="checkbox"
+                                                name="trustProxy"
+                                                checked={formData.trustProxy || false}
+                                                onChange={handleInputChange}
+                                                className="w-4 h-4 rounded border-gray-300"
+                                            />
+                                            <span className="text-sm font-medium text-gray-700">Trust X-Forwarded-For (optional)</span>
+                                        </label>
+                                        <p className="text-xs text-gray-500 mt-1">Overrides global trust-x-forwarded-for setting for this rule</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {formData.limitType === 'USER_BASED' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        User ID Header (optional)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        name="headerName"
+                                        value={formData.headerName}
+                                        onChange={handleInputChange}
+                                        placeholder="e.g., X-User-Id (leave empty for global default)"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Overrides global user-id-header-name setting for this rule</p>
+                                </div>
+                            )}
+
+                            {formData.limitType === 'API_KEY' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        API Key Header (optional)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        name="headerName"
+                                        value={formData.headerName}
+                                        onChange={handleInputChange}
+                                        placeholder="e.g., X-API-Key (leave empty for global default)"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Overrides global api-key-header-name setting for this rule</p>
+                                </div>
+                            )}
+
+                            {formData.limitType === 'SESSION_BASED' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Session Cookie Name (optional)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        name="sessionCookieName"
+                                        value={formData.sessionCookieName}
+                                        onChange={handleInputChange}
+                                        placeholder="e.g., JSESSIONID (leave empty for global default)"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Overrides global session-cookie-name setting for this rule</p>
+                                </div>
+                            )}
 
                             {/* Security Warning for IP_BASED */}
                             {formData.limitType === 'IP_BASED' && (
@@ -259,6 +353,21 @@ export default function Policies() {
                                                 If your gateway is behind a proxy/load balancer, ensure <code className="bg-amber-100 px-1 rounded">trust-x-forwarded-for</code> is
                                                 enabled in the backend config. <strong>Only enable this if you control the proxy</strong> and
                                                 it correctly sets X-Forwarded-For. Otherwise, attackers can spoof their IP!
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Security Warning for SESSION_BASED */}
+                            {formData.limitType === 'SESSION_BASED' && (
+                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                    <div className="flex items-start space-x-2">
+                                        <AlertTriangle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                                        <div className="text-sm text-blue-800">
+                                            <p className="font-semibold">Session Cookie Configuration</p>
+                                            <p className="mt-1">
+                                                By default, uses <code className="bg-blue-100 px-1 rounded">JSESSIONID</code> cookie. Configure a custom session cookie name via the <code className="bg-blue-100 px-1 rounded">session-cookie-name</code> system setting if your application uses a different cookie name.
                                             </p>
                                         </div>
                                     </div>

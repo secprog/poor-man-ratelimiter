@@ -48,6 +48,9 @@ public class PolicyService {
                     existing.setReplenishRate(policy.getReplenishRate());
                     existing.setBurstCapacity(policy.getBurstCapacity());
                     existing.setRequestedTokens(policy.getRequestedTokens());
+                    existing.setHeaderName(policy.getHeaderName());
+                    existing.setSessionCookieName(policy.getSessionCookieName());
+                    existing.setTrustProxy(policy.getTrustProxy());
                     return repository.save(existing);
                 })
                 .doOnSuccess(p -> policyCache.invalidate(ALL_POLICIES_KEY));

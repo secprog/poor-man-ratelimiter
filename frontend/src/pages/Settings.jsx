@@ -168,6 +168,36 @@ export default function Settings() {
                                 <p className="text-xs text-gray-500 mt-1">Hidden field name to trap bots.</p>
                             </div>
                         </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Challenge Type</label>
+                                <select
+                                    value={configs['antibot-challenge-type'] || 'metarefresh'}
+                                    onChange={(e) => handleChange('antibot-challenge-type', e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                >
+                                    <option value="metarefresh">Meta Refresh (No JavaScript)</option>
+                                    <option value="javascript">JavaScript (Deferred)</option>
+                                </select>
+                                <p className="text-xs text-gray-500 mt-1">Choose the challenge method for suspicious requests.</p>
+                            </div>
+
+                            {configs['antibot-challenge-type'] === 'metarefresh' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Meta Refresh Delay (seconds)</label>
+                                    <input
+                                        type="number"
+                                        value={configs['antibot-metarefresh-delay'] || '3'}
+                                        onChange={(e) => handleChange('antibot-metarefresh-delay', e.target.value)}
+                                        min="1"
+                                        max="30"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Delay before page auto-refresh. 1-30 seconds recommended.</p>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </section>
 

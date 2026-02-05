@@ -5,7 +5,11 @@ CREATE TABLE IF NOT EXISTS rate_limit_policies (
     replenish_rate INTEGER NOT NULL,
     burst_capacity INTEGER NOT NULL,
     requested_tokens INTEGER NOT NULL DEFAULT 1,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    header_name VARCHAR(255),
+    session_cookie_name VARCHAR(255),
+    trust_proxy BOOLEAN,
+    CONSTRAINT unique_policy_route_type UNIQUE (route_pattern, limit_type)
 );
 
 CREATE TABLE IF NOT EXISTS rate_limit_rules (
@@ -33,7 +37,10 @@ INSERT INTO system_config (config_key, config_value) VALUES
 ('trust-x-forwarded-for', 'false'),
 ('antibot-enabled', 'true'),
 ('antibot-min-submit-time', '2000'),
-('antibot-honeypot-field', '_hp_email')
+('antibot-honeypot-field', '_hp_email'),
+('session-cookie-name', 'JSESSIONID'),
+('antibot-challenge-type', 'metarefresh'),
+('antibot-metarefresh-delay', '3')
 ON CONFLICT DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS request_stats (
