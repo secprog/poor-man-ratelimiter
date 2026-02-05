@@ -74,3 +74,10 @@ temp/
 
 # System files
 .gitkeep
+
+# Python
+__pycache__/*
+__pycache__
+__pycache__/
+*.pyc
+*.pyo
