@@ -1,4 +1,4 @@
-# Rate Limiter Gateway
+# Poors Man Rate Limiter Gateway
 
 Production-ready API gateway with advanced rate limiting, anti-bot defenses, real-time analytics, and comprehensive admin UI.
 

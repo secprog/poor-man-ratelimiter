@@ -5,6 +5,7 @@ import com.example.gateway.repository.RateLimitRuleRepository;
 import com.example.gateway.service.RateLimiterService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -20,6 +21,7 @@ public class RateLimitRuleController {
     
     private final RateLimitRuleRepository ruleRepository;
     private final RateLimiterService rateLimiterService;
+    private final R2dbcEntityTemplate r2dbcEntityTemplate;
 
     @GetMapping
     public Flux<RateLimitRule> getAllRules() {
@@ -41,7 +43,8 @@ public class RateLimitRuleController {
         if (rule.getId() == null) {
             rule.setId(UUID.randomUUID());
         }
-        return ruleRepository.save(rule)
+        return r2dbcEntityTemplate.insert(RateLimitRule.class)
+                .using(rule)
                 .doOnSuccess(saved -> {
                     log.info("Created new rate limit rule: {}", saved);
                     rateLimiterService.refreshRules().subscribe();

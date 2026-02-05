@@ -31,7 +31,7 @@ def check_dependencies():
 
 def start_test_server():
     """Start the test server in the background"""
-    print("🚀 Starting test server on http://localhost:9000...")
+    print("Starting test server on http://localhost:9000...")
     proc = subprocess.Popen(
         [sys.executable, "test-server.py"],
         stdout=subprocess.PIPE,
@@ -48,15 +48,34 @@ def start_test_server():
         print("❌ Test server failed to start!")
         return None
     
-    print("✅ Test server started (PID: {})".format(proc.pid))
+    print("Test server started (PID: {})".format(proc.pid))
     return proc
 
 def run_tests():
     """Run the test suite"""
-    print("\n🧪 Running test suite...")
+    print("\nRunning test suite...")
     print("=" * 70)
-    result = subprocess.run([sys.executable, "test-gateway.py"])
-    return result.returncode
+
+    test_files = [
+        "test-gateway.py",
+        "test-jwt-rate-limit.py",
+        "test-body-content-types.py",
+    ]
+
+    exit_code = 0
+    for test_file in test_files:
+        if not os.path.exists(test_file):
+            print(f"Skipping missing test file: {test_file}")
+            continue
+
+        print("\n" + "=" * 70)
+        print(f"Running {test_file}")
+        print("=" * 70)
+        result = subprocess.run([sys.executable, test_file])
+        if result.returncode != 0:
+            exit_code = result.returncode
+
+    return exit_code
 
 def main():
     print_banner()
@@ -86,8 +105,8 @@ def main():
                 sys.exit(1)
         
         if mode == "server":
-            print("\n📝 Test server is running. Press Ctrl+C to stop.")
-            print("   You can now run tests with: python test-gateway.py")
+            print("\nTest server is running. Press Ctrl+C to stop.")
+            print("   You can now run tests with: python run-tests.py tests")
             # Keep running
             try:
                 server_proc.wait()
@@ -96,18 +115,18 @@ def main():
         
         elif mode in ["tests", "both"]:
             if mode == "both":
-                print("\n⏳ Giving server a moment to fully initialize...")
+                print("\nGiving server a moment to fully initialize...")
                 time.sleep(1)
             
             exit_code = run_tests()
             
             if mode == "both":
-                print("\n⏹️  Stopping test server...")
+                print("\nStopping test server...")
             
             sys.exit(exit_code)
     
     except KeyboardInterrupt:
-        print("\n\n⏹️  Interrupted by user")
+        print("\n\nInterrupted by user")
     
     finally:
         # Cleanup: stop the server if we started it

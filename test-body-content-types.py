@@ -10,15 +10,16 @@ import time
 
 BASE_URL = "http://localhost:8080"
 API_URL = f"{BASE_URL}/api/admin/rules"
+TEST_PATH = "/test/api/echo"
 
 def create_body_rate_limit_rule(field_path, content_type):
     """Create a rate limit rule for body-based limiting with specified content type."""
     rule = {
-        "pathPattern": "/test/body/**",
+        "pathPattern": "/test/**",
         "allowedRequests": 5,
         "windowSeconds": 60,
         "active": True,
-        "priority": 0,
+        "priority": -1,
         "queueEnabled": False,
         "maxQueueSize": 10,
         "delayPerRequestMs": 500,
@@ -47,9 +48,10 @@ def test_json_body():
     
     for user in users:
         response = requests.post(
-            f"{BASE_URL}/test/body/endpoint",
+            f"{BASE_URL}{TEST_PATH}",
             headers={"Content-Type": "application/json"},
-            json={"user_id": user, "action": "test"}
+            json={"user_id": user, "action": "test"},
+            timeout=10
         )
         print(f"  Request with user_id={user}: {response.status_code}")
         time.sleep(0.5)
@@ -70,9 +72,10 @@ def test_form_data():
     
     for key in api_keys:
         response = requests.post(
-            f"{BASE_URL}/test/body/endpoint",
+            f"{BASE_URL}{TEST_PATH}",
             headers={"Content-Type": "application/x-www-form-urlencoded"},
-            data={"api_key": key, "action": "test"}
+            data={"api_key": key, "action": "test"},
+            timeout=10
         )
         print(f"  Request with api_key={key}: {response.status_code}")
         time.sleep(0.5)
@@ -102,9 +105,10 @@ def test_xml_body():
 </request>"""
         
         response = requests.post(
-            f"{BASE_URL}/test/body/endpoint",
+            f"{BASE_URL}{TEST_PATH}",
             headers={"Content-Type": "application/xml"},
-            data=xml_body.encode('utf-8')
+            data=xml_body.encode('utf-8'),
+            timeout=10
         )
         print(f"  Request with client_id={client_id}: {response.status_code}")
         time.sleep(0.5)
@@ -130,8 +134,9 @@ def test_multipart_form():
         }
         
         response = requests.post(
-            f"{BASE_URL}/test/body/endpoint",
-            files=files
+            f"{BASE_URL}{TEST_PATH}",
+            files=files,
+            timeout=10
         )
         print(f"  Request with session_id={session_id}: {response.status_code}")
         time.sleep(0.5)

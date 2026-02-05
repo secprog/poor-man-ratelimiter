@@ -732,9 +732,118 @@ def test_various_http_methods():
         return False
 
 
+def test_body_content_types():
+    """Test body submissions with XML and form-encoded content types"""
+    print_header("TEST 16: Body Content Types (XML/Form)")
+
+    results = []
+
+    # application/x-www-form-urlencoded
+    token_data = get_form_token()
+    if not token_data:
+        print_failure("Could not get form token")
+        return False
+
+    time.sleep(2.1)
+    headers = {
+        'X-Form-Token': token_data['token'],
+        'X-Form-Load-Time': str(token_data['loadTime']),
+        'X-Honeypot': '',
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
+
+    try:
+        response = requests.post(
+            f"{GATEWAY_URL}/test/api/echo",
+            headers=headers,
+            data={'message': 'form-urlencoded', 'value': 'alpha'},
+            timeout=10
+        )
+        results.append(("x-www-form-urlencoded", response))
+    except requests.exceptions.RequestException as e:
+        print_failure(f"x-www-form-urlencoded request failed: {e}")
+        return False
+
+    # application/xml
+    token_data = get_form_token()
+    if not token_data:
+        print_failure("Could not get form token")
+        return False
+
+    time.sleep(2.1)
+    headers = {
+        'X-Form-Token': token_data['token'],
+        'X-Form-Load-Time': str(token_data['loadTime']),
+        'X-Honeypot': '',
+        'Content-Type': 'application/xml'
+    }
+
+    xml_body = """<?xml version="1.0" encoding="UTF-8"?>
+<request>
+  <message>xml</message>
+  <value>beta</value>
+</request>
+"""
+
+    try:
+        response = requests.post(
+            f"{GATEWAY_URL}/test/api/echo",
+            headers=headers,
+            data=xml_body.encode('utf-8'),
+            timeout=10
+        )
+        results.append(("application/xml", response))
+    except requests.exceptions.RequestException as e:
+        print_failure(f"application/xml request failed: {e}")
+        return False
+
+    # multipart/form-data (form-encoded)
+    token_data = get_form_token()
+    if not token_data:
+        print_failure("Could not get form token")
+        return False
+
+    time.sleep(2.1)
+    headers = {
+        'X-Form-Token': token_data['token'],
+        'X-Form-Load-Time': str(token_data['loadTime']),
+        'X-Honeypot': ''
+    }
+
+    files = {
+        'message': (None, 'multipart-form'),
+        'value': (None, 'gamma')
+    }
+
+    try:
+        response = requests.post(
+            f"{GATEWAY_URL}/test/api/echo",
+            headers=headers,
+            files=files,
+            timeout=10
+        )
+        results.append(("multipart/form-data", response))
+    except requests.exceptions.RequestException as e:
+        print_failure(f"multipart/form-data request failed: {e}")
+        return False
+
+    all_passed = True
+    for label, response in results:
+        if response.status_code == 200:
+            print_success(f"{label} accepted")
+        else:
+            all_passed = False
+            reason = response.headers.get('X-Rejection-Reason')
+            print_failure(f"{label} rejected: {response.status_code}")
+            if reason:
+                print_info(f"Rejection reason: {reason}")
+
+    return all_passed
+
+
 def test_large_payload():
     """Test with large request payloads"""
-    print_header("TEST 16: Large Payload Handling")
+    print_header("TEST 17: Large Payload Handling")
     
     token_data = get_form_token()
     if not token_data:
@@ -775,7 +884,7 @@ def test_large_payload():
 
 def test_special_characters():
     """Test with special characters in data"""
-    print_header("TEST 17: Special Characters Handling")
+    print_header("TEST 18: Special Characters Handling")
     
     # Reset to defaults first (in case previous tests modified the rule)
     if not reset_to_default_rate_limit():
@@ -826,7 +935,7 @@ def test_special_characters():
 
 def test_token_format_validation():
     """Test token format and structure"""
-    print_header("TEST 18: Token Format Validation")
+    print_header("TEST 19: Token Format Validation")
     
     token_data = get_form_token()
     if not token_data:
@@ -867,7 +976,7 @@ def test_token_format_validation():
 
 def test_gateway_headers():
     """Test gateway header handling"""
-    print_header("TEST 19: Gateway Header Forwarding")
+    print_header("TEST 20: Gateway Header Forwarding")
     
     try:
         # Test that headers are properly forwarded to httpbin
@@ -897,7 +1006,7 @@ def test_gateway_headers():
 
 def test_cross_origin_requests():
     """Test CORS and cross-origin requests"""
-    print_header("TEST 20: Cross-Origin Support")
+    print_header("TEST 21: Cross-Origin Support")
     
     try:
         # Test with Origin header
@@ -924,7 +1033,7 @@ def test_cross_origin_requests():
 
 def test_queueing_configuration():
     """Test queueing configuration via admin API"""
-    print_header("TEST 21: Queueing Configuration")
+    print_header("TEST 22: Queueing Configuration")
     
     try:
         admin_url = f"{GATEWAY_URL}/api/admin/rules"
@@ -985,7 +1094,7 @@ def test_queueing_configuration():
 
 def test_queueing_behavior():
     """Test that requests are queued instead of rejected"""
-    print_header("TEST 22: Queueing Behavior")
+    print_header("TEST 23: Queueing Behavior")
     
     try:
         admin_url = f"{GATEWAY_URL}/api/admin/rules"
@@ -1063,7 +1172,7 @@ def test_queueing_behavior():
 
 def test_queueing_delay_timing():
     """Test that queueing delays are actually applied"""
-    print_header("TEST 23: Queueing Delay Timing")
+    print_header("TEST 24: Queueing Delay Timing")
     
     try:
         admin_url = f"{GATEWAY_URL}/api/admin/rules"
@@ -1131,7 +1240,7 @@ def test_queueing_delay_timing():
 
 def test_queueing_disabled_reverts_to_rejection():
     """Test that disabling queueing reverts to normal rejection behavior"""
-    print_header("TEST 24: Disable Queueing")
+    print_header("TEST 25: Disable Queueing")
     
     if not reset_to_default_rate_limit():
         print_warning("Could not reset rate limit rule")
@@ -1245,6 +1354,7 @@ def main():
     results["Token Lifecycle"] = test_expired_token()
     results["Concurrent Submissions"] = test_concurrent_submissions()
     results["Various HTTP Methods"] = test_various_http_methods()
+    results["Body Content Types"] = test_body_content_types()
     results["Large Payload Handling"] = test_large_payload()
     results["Special Characters"] = test_special_characters()
     results["Token Format Validation"] = test_token_format_validation()

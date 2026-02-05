@@ -50,6 +50,7 @@ def create_jwt_rule():
         "allowedRequests": 5,  # Low limit for easy testing
         "windowSeconds": 60,
         "active": True,
+        "priority": -1,
         "queueEnabled": False,
         "jwtEnabled": True,
         "jwtClaims": json.dumps(["sub", "tenant_id"]),
