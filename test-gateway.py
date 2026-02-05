@@ -25,6 +25,9 @@ if sys.platform == 'win32':
 GATEWAY_URL = "http://localhost:8080"
 TEST_SERVER_URL = "http://localhost:9000"
 TEST_SERVER_DOCKER = os.getenv("TEST_SERVER_URL", "http://host.docker.internal:9000")
+ADMIN_BASE_URL = os.getenv("ADMIN_BASE_URL", "http://localhost:9090")
+RULES_ADMIN_URL = f"{ADMIN_BASE_URL}/api/admin/rules"
+TEST_ROUTE_TARGET_URI = os.getenv("TEST_ROUTE_TARGET_URI", "http://test-server:9000")
 
 # Colors for terminal output
 class Colors:
@@ -83,6 +86,68 @@ def test_direct_server_access():
         print_failure(f"Test server is not accessible: {e}")
         print_warning("Make sure to run: python test-server.py")
         return False
+
+
+def ensure_test_rule() -> bool:
+    """Ensure a rule exists for /test/** with a target URI."""
+    print_header("RULE SETUP: Ensure /test Route Rule")
+
+    try:
+        response = requests.get(RULES_ADMIN_URL, timeout=10)
+        if response.status_code != 200:
+            print_failure(f"Failed to get rules: {response.status_code}")
+            return False
+
+        rules = response.json()
+        existing = next((rule for rule in rules if rule.get("pathPattern") == "/test/**"), None)
+
+        if existing:
+            if existing.get("targetUri"):
+                print_success("/test/** rule already exists")
+                return True
+
+            updated = existing.copy()
+            updated["targetUri"] = TEST_ROUTE_TARGET_URI
+            update_response = requests.put(
+                f"{RULES_ADMIN_URL}/{existing.get('id')}",
+                json=updated,
+                timeout=10
+            )
+
+            if update_response.status_code == 200:
+                print_success("Updated /test/** rule with targetUri")
+                return True
+
+            print_failure(f"Failed to update /test/** rule: {update_response.status_code}")
+            return False
+
+        payload = {
+            "pathPattern": "/test/**",
+            "targetUri": TEST_ROUTE_TARGET_URI,
+            "allowedRequests": 100,
+            "windowSeconds": 60,
+            "active": True,
+            "priority": 0,
+            "queueEnabled": False,
+            "maxQueueSize": 0,
+            "delayPerRequestMs": 0,
+            "jwtEnabled": False,
+            "headerLimitEnabled": False,
+            "cookieLimitEnabled": False,
+            "bodyLimitEnabled": False
+        }
+
+        create_response = requests.post(RULES_ADMIN_URL, json=payload, timeout=10)
+        if create_response.status_code in (200, 201):
+            print_success("Created /test/** rule")
+            return True
+
+        print_failure(f"Failed to create /test/** rule: {create_response.status_code}")
+        return False
+    except requests.exceptions.RequestException as e:
+        print_failure(f"Rule setup failed: {e}")
+        return False
+
 
 
 def test_gateway_routes():
@@ -176,8 +241,7 @@ def get_form_token() -> Optional[Dict[str, Any]]:
 def reset_to_default_rate_limit():
     """Reset rate limit rule to default configuration"""
     try:
-        admin_url = f"http://localhost:9090/poormansRateLimit/api/admin/rules"
-        response = requests.get(admin_url, timeout=10)
+        response = requests.get(RULES_ADMIN_URL, timeout=10)
         
         if response.status_code != 200:
             return False
@@ -198,7 +262,7 @@ def reset_to_default_rate_limit():
             "delayPerRequestMs": 0
         })
         
-        response = requests.put(f"{admin_url}/{rule_id}", json=rule, timeout=10)
+        response = requests.put(f"{RULES_ADMIN_URL}/{rule_id}", json=rule, timeout=10)
         if response.status_code == 200:
             time.sleep(1.5)  # Wait for rule reload
             return True
@@ -1036,7 +1100,7 @@ def test_queueing_configuration():
     print_header("TEST 22: Queueing Configuration")
     
     try:
-        admin_url = f"http://localhost:9090/poormansRateLimit/api/admin/rules"
+        admin_url = RULES_ADMIN_URL
         
         # Get existing rules
         response = requests.get(admin_url, timeout=10)
@@ -1097,7 +1161,7 @@ def test_queueing_behavior():
     print_header("TEST 23: Queueing Behavior")
     
     try:
-        admin_url = f"http://localhost:9090/poormansRateLimit/api/admin/rules"
+        admin_url = RULES_ADMIN_URL
         
         # Get rule and configure for tight rate limit
         response = requests.get(admin_url, timeout=10)
@@ -1175,7 +1239,7 @@ def test_queueing_delay_timing():
     print_header("TEST 24: Queueing Delay Timing")
     
     try:
-        admin_url = f"http://localhost:9090/poormansRateLimit/api/admin/rules"
+        admin_url = RULES_ADMIN_URL
         
         # Get rule and configure for measurable delays
         response = requests.get(admin_url, timeout=10)
@@ -1246,7 +1310,7 @@ def test_queueing_disabled_reverts_to_rejection():
         print_warning("Could not reset rate limit rule")
     
     try:
-        admin_url = f"http://localhost:9090/poormansRateLimit/api/admin/rules"
+        admin_url = RULES_ADMIN_URL
         
         # Get rule and disable queueing
         response = requests.get(admin_url, timeout=10)
@@ -1339,6 +1403,7 @@ def main():
     results = {}
     
     # Run tests
+    results["Ensure /test Rule"] = ensure_test_rule()
     results["Direct Server Access"] = test_direct_server_access()
     results["Gateway Routing"] = test_gateway_routes()
     results["Basic GET Request"] = test_basic_get_request()

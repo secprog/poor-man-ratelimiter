@@ -32,6 +32,7 @@ public class RedisBootstrapService {
         RateLimitRule defaultRule = new RateLimitRule(
                 DEFAULT_RULE_ID,
                 "/**",
+            null,
                 100,
                 60,
                 true,

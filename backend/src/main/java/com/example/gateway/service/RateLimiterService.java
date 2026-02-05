@@ -102,33 +102,77 @@ public class RateLimiterService {
      * @return RateLimitResult indicating if request is allowed, and any delay
      */
     public Mono<RateLimitResult> isAllowed(ServerWebExchange exchange, String path, String clientIp, String authHeader, byte[] bodyBytes) {
-        // Find matching rule (first match wins)
-        RateLimitRule matchedRule = activeRules.stream()
-                .filter(rule -> pathMatcher.match(rule.getPathPattern(), path))
-                .findFirst()
-                .orElse(null);
+        List<RateLimitRule> specificRules = activeRules.stream()
+            .filter(rule -> !isGlobalRule(rule))
+            .filter(rule -> pathMatcher.match(rule.getPathPattern(), path))
+            .toList();
 
-        if (matchedRule == null) {
+        List<RateLimitRule> globalRules = activeRules.stream()
+            .filter(this::isGlobalRule)
+            .filter(rule -> pathMatcher.match(rule.getPathPattern(), path))
+            .toList();
+
+        if (specificRules.isEmpty() && globalRules.isEmpty()) {
             return logTraffic(path, clientIp, 200, true)
                     .thenReturn(new RateLimitResult(true, 0, false));
         }
 
-        // Extract body field value if body-based limiting is enabled
-        String bodyFieldValue = null;
-        if (matchedRule.isBodyLimitEnabled() && matchedRule.getBodyFieldPath() != null && bodyBytes != null) {
-            bodyFieldValue = extractBodyField(exchange, bodyBytes, matchedRule.getBodyFieldPath(), 
-                    matchedRule.getBodyContentType());
-        }
+        List<RateLimitRule> matchedRules = new java.util.ArrayList<>(specificRules.size() + globalRules.size());
+        matchedRules.addAll(specificRules);
+        matchedRules.addAll(globalRules);
 
-        // Determine the identifier to use for rate limiting
-        String identifier = determineIdentifier(exchange, matchedRule, clientIp, authHeader, bodyFieldValue);
-        
-        return checkLimit(matchedRule, identifier)
+        return applyRules(matchedRules, exchange, path, clientIp, authHeader, bodyBytes)
                 .flatMap(result -> {
                     int status = result.isAllowed() ? 200 : 429;
                     return logTraffic(path, clientIp, status, result.isAllowed())
                             .thenReturn(result);
                 });
+    }
+
+    private Mono<RateLimitResult> applyRules(List<RateLimitRule> rules,
+                                             ServerWebExchange exchange,
+                                             String path,
+                                             String clientIp,
+                                             String authHeader,
+                                             byte[] bodyBytes) {
+        return reactor.core.publisher.Flux.fromIterable(rules)
+                .concatMap(rule -> {
+                    String bodyFieldValue = null;
+                    if (rule.isBodyLimitEnabled() && rule.getBodyFieldPath() != null && bodyBytes != null) {
+                        bodyFieldValue = extractBodyField(exchange, bodyBytes, rule.getBodyFieldPath(),
+                                rule.getBodyContentType());
+                    }
+                    String identifier = determineIdentifier(exchange, rule, clientIp, authHeader, bodyFieldValue);
+                    return checkLimit(rule, identifier);
+                })
+                .reduce(new AggregateResult(), AggregateResult::apply)
+                .map(AggregateResult::toRateLimitResult);
+    }
+
+    private static class AggregateResult {
+        private boolean allowed = true;
+        private boolean queued = false;
+        private long delayMs = 0;
+
+        private AggregateResult apply(RateLimitResult result) {
+            if (!result.isAllowed()) {
+                allowed = false;
+                queued = false;
+                delayMs = 0;
+                return this;
+            }
+
+            if (result.isQueued()) {
+                queued = true;
+                delayMs = Math.max(delayMs, result.getDelayMs());
+            }
+
+            return this;
+        }
+
+        private RateLimitResult toRateLimitResult() {
+            return new RateLimitResult(allowed, delayMs, queued);
+        }
     }
 
     /**
@@ -289,6 +333,11 @@ public class RateLimiterService {
                         }
                     }
                 });
+    }
+
+    private boolean isGlobalRule(RateLimitRule rule) {
+        String pattern = rule.getPathPattern();
+        return pattern != null && pattern.trim().equals("/**");
     }
     
     private Mono<RateLimitResult> handleQueue(RateLimitRule rule, String identifier) {

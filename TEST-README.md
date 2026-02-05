@@ -41,8 +41,7 @@ python test-gateway.py
 - **test-gateway.py** - Comprehensive test suite for all gateway features
 - **run-tests.py** - Python test runner script
 - **Run-Tests.ps1** - PowerShell test runner script (Windows)
-- **test-requirements.txt** - Python dependencies
-- **TESTING.md** - Detailed testing documentation
+ 
 
 ## What Gets Tested
 
@@ -54,3 +53,11 @@ python test-gateway.py
 ✅ Token reuse prevention  
 ✅ Idempotency key handling  
 ✅ Meta refresh challenge mechanism  
+
+## Dependencies
+
+Install Python dependencies before running tests:
+
+```bash
+pip install flask requests
+```

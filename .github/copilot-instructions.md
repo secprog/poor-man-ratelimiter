@@ -9,7 +9,7 @@ Production-ready API gateway with advanced rate limiting (token bucket + leaky b
 - **Always use reactive flows** (`Mono`, `Flux`) - avoid blocking operations in request paths
 - Use **reactive Redis** for persistence, avoid blocking I/O
 - Leverage **Caffeine cache** for tokens, counters, and frequently accessed data
-- Apply **`@CrossOrigin`** on controllers for API endpoints
+curl -X PATCH http://localhost:9090/api/admin/rules/{rule-id}/queue \\
 - Use **Lombok** annotations (`@RequiredArgsConstructor`, `@Slf4j`, `@Data`) to reduce boilerplate
 - Log at appropriate levels: `debug` for detailed tracing, `info` for key events, `error` for failures
 
@@ -18,14 +18,14 @@ Production-ready API gateway with advanced rate limiting (token bucket + leaky b
 - **Tailwind CSS** for styling (utility-first approach)
 - **Lucide React** for icons (`import { IconName } from 'lucide-react'`)
 - **Recharts** for data visualization
-- Centralize API calls in [frontend/src/api.js](frontend/src/api.js) (Axios instance)
+curl -X PUT http://localhost:9090/api/admin/rules/{rule-id} \\
 - WebSocket connections use [frontend/src/utils/websocket.js](frontend/src/utils/websocket.js) wrapper
 
 ## Architecture
 
 ### Backend Structure
 
-#### Filters (Spring Cloud Gateway)
+curl -X PATCH http://localhost:9090/api/admin/rules/{rule-id}/queue \\
 - **[RateLimitFilter.java](backend/src/main/java/com/example/gateway/filter/RateLimitFilter.java)**: 
   - Token bucket + leaky bucket (queueing) enforcement
   - Handles `RateLimitResult` from `RateLimiterService`
@@ -34,7 +34,7 @@ Production-ready API gateway with advanced rate limiting (token bucket + leaky b
   - Order: `-1` (high priority, before routing)
 
 - **[AntiBotFilter.java](backend/src/main/java/com/example/gateway/filter/AntiBotFilter.java)**:
-  - Validates honeypot fields, time-to-submit, form tokens, idempotency keys
+curl -X PUT http://localhost:9090/api/admin/rules/{rule-id} \\
   - Uses Caffeine caches for token tracking (10min expiry)
   - Only applies to POST/PUT/PATCH requests
   - Order: `-100` (very early in filter chain)
@@ -89,7 +89,7 @@ All controllers in [backend/src/main/java/com/example/gateway/controller](backen
 
 #### WebSocket
 - **[AnalyticsWebSocketHandler.java](backend/src/main/java/com/example/gateway/websocket/AnalyticsWebSocketHandler.java)**: 
-  - Endpoint: `/ws/analytics`
+  - Endpoint: `/api/ws/analytics`
   - Sends real-time updates using `AnalyticsBroadcaster.getUpdates()` Flux
 
 - **[AnalyticsBroadcaster.java](backend/src/main/java/com/example/gateway/websocket/AnalyticsBroadcaster.java)**:
@@ -235,7 +235,7 @@ Configured via `antibot-challenge-type` in `system_config`:
 ### Real-time Analytics
 
 #### WebSocket Flow
-1. Frontend connects to `ws://backend:8080/ws/analytics`
+1. Frontend connects to `ws://backend:8080/api/ws/analytics`
 2. `AnalyticsWebSocketHandler` subscribes to `AnalyticsBroadcaster.getUpdates()`
 3. `AnalyticsService` calls `broadcaster.broadcast(update)` on each request
 4. All connected clients receive `{requestsAllowed, requestsBlocked, activePolicies}` JSON
@@ -286,7 +286,7 @@ Configured via `antibot-challenge-type` in `system_config`:
 
 ### Enabling Queueing on Existing Rule
 ```bash
-curl -X PATCH http://localhost:8080/api/admin/rules/{rule-id}/queue \\
+curl -X PATCH http://localhost:9090/api/admin/rules/{rule-id}/queue \\
   -H "Content-Type: application/json" \\
   -d '{"queueEnabled":true,"maxQueueSize":10,"delayPerRequestMs":500}'
 ```
@@ -295,7 +295,7 @@ curl -X PATCH http://localhost:8080/api/admin/rules/{rule-id}/queue \\
 1. **Via UI**: Policies page → Edit rule → Enable JWT → Enter claims (comma-separated)
 2. **Via API**: 
 ```bash
-curl -X PUT http://localhost:8080/api/admin/rules/{rule-id} \\
+curl -X PUT http://localhost:9090/api/admin/rules/{rule-id} \\
   -H "Content-Type: application/json" \\
   -d '{
     "pathPattern": "/api/tenant/**",
@@ -387,13 +387,13 @@ In [RateLimiterService.java](backend/src/main/java/com/example/gateway/service/R
 - Nginx config issue: Check [nginx.conf](frontend/nginx.conf) proxy_pass URLs
 
 ### WebSocket Not Connecting
-- Ensure `/ws/analytics` is proxied in Nginx (not just `/api/`)
+- Ensure `/api/ws/analytics` is proxied in Nginx
 - Check browser console for connection errors
 - Verify `WebSocketConfig` registered in Spring Boot
 
 ### Rate Limits Not Enforcing
 - Check rule active: `GET /api/admin/rules/active`
-- Refresh cache: `POST http://localhost:8080/api/admin/rules/refresh`
+- Refresh cache: `POST http://localhost:9090/api/admin/rules/refresh`
 - Verify IP extraction: Log `clientIp` in `RateLimitFilter`
 
 ### Tests Failing

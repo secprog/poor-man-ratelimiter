@@ -6,21 +6,29 @@ Body-based rate limiting allows you to rate limit API requests based on JSON fie
 
 ## Key Features
 
-- **JSON Path Extraction**: Extract values from simple or nested JSON paths (e.g., `user_id`, `api_key`, `user.id`)
+# Body-Based Rate Limiting Feature
+
+## Overview
+
+Body-based rate limiting lets you choose a rate-limit identifier from the HTTP request body. It supports JSON, form URL-encoded, XML, and multipart form payloads, which is useful for limiting by user ID, API key, tenant ID, or other fields in the payload.
+
+## Key Features
+
+- **Multi-format Extraction**: JSON, form URL-encoded, XML, and multipart form bodies
 - **Multiple Limit Modes**:
   - `replace_ip`: Use body field value instead of client IP
-  - `combine_with_ip`: Combine both IP and body field value for rate limiting
-- **Fallback Support**: Gracefully falls back to IP-based or JWT-based limiting if body field is missing
-- **Priority Chain**: Body field > JWT claims > IP address
+  - `combine_with_ip`: Combine IP and body field value (`IP:value`)
+- **Fallback Support**: Falls back to JWT or IP-based limiting when the body field is missing
+- **Priority Chain**: Header > Cookie > Body field > JWT claims > IP address
 
 ## Configuration
 
-### Adding Body-Based Rate Limiting to a Rule
+### Add Body-Based Limiting to a Rule
 
-#### Via REST API
+Use the admin API on port 9090 (or via the UI) to update body settings:
 
 ```bash
-curl -X PATCH http://localhost:8080/api/admin/rules/{rule-id}/body-limit \
+curl -X PATCH http://localhost:9090/api/admin/rules/{rule-id}/body-limit \
   -H "Content-Type: application/json" \
   -d '{
     "bodyLimitEnabled": true,
@@ -33,259 +41,101 @@ curl -X PATCH http://localhost:8080/api/admin/rules/{rule-id}/body-limit \
 
 ```json
 {
-  "bodyLimitEnabled": true,                // Enable/disable body-based limiting
-  "bodyFieldPath": "user_id",               // Path to JSON field (supports dot notation)
-  "bodyLimitType": "replace_ip"             // "replace_ip" or "combine_with_ip"
+  "bodyLimitEnabled": true,
+  "bodyFieldPath": "user_id",
+  "bodyLimitType": "replace_ip"
 }
 ```
 
-### Redis Storage
-
-Body-based rule fields are stored alongside each rule in Redis under `rate_limit_rules`.
+Note: `bodyContentType` is stored on the rule, but the `/body-limit` PATCH endpoint does not update it. Use a full rule `POST`/`PUT` (or the UI) when you need to override the request Content-Type.
 
 ## Usage Examples
 
-### Example 1: Rate Limit by User ID (Replace IP)
+### Example 1: JSON Body (Replace IP)
 
-Use the admin API to update the rule with body-based settings (example above).
-
-**Request**:
 ```bash
-curl -X POST http://localhost:8080/api/create-order \
+curl -X POST http://localhost:8080/httpbin/post \
   -H "Content-Type: application/json" \
   -d '{"user_id": "user123", "amount": 100}'
 ```
 
-**Behavior**: Rate limit will be tracked per `user_id` value instead of per IP address. Multiple users from the same IP will have separate limits.
+Behavior: rate limit is tracked per `user_id` value instead of IP.
 
-### Example 2: Rate Limit by API Key (Combine with IP)
-
-Use `bodyLimitType: "combine_with_ip"` and the appropriate field path in the PATCH request.
-
-**Behavior**: Rate limit will be tracked per combination of `(IP_ADDRESS:api_key)`. Rate limit counters are separate for each IP + API key combination.
-
-### Example 3: Rate Limit by Tenant ID (Nested Path)
+### Example 2: Form URL-Encoded (Combine with IP)
 
 ```bash
-curl -X PATCH http://localhost:8080/api/admin/rules/{rule-id}/body-limit \
-  -H "Content-Type: application/json" \
-  -d '{
-    "bodyLimitEnabled": true,
-    "bodyFieldPath": "organization.tenant_id",
-    "bodyLimitType": "replace_ip"
-  }'
+curl -X POST http://localhost:8080/httpbin/post \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "api_key=abc123&amount=100"
 ```
 
-**Request**:
-```bash
-curl -X POST http://localhost:8080/api/data-sync \
-  -H "Content-Type: application/json" \
-  -d '{
-    "organization": {
-      "tenant_id": "acme-corp",
-      "action": "sync-now"
-    }
-  }'
-```
-
-**Behavior**: Rate limit tracks requests per `acme-corp` tenant ID, regardless of which user or IP makes the request.
+Behavior: rate limit uses `IP:api_key` when `bodyLimitType` is `combine_with_ip`.
 
 ## How It Works
 
-### Request Flow
-
-1. **Filter**: `RateLimitFilter` receives request
-2. **Body Caching**: If POST/PUT/PATCH with JSON content-type, request body is read and cached in exchange attributes
-3. **Rule Matching**: `RateLimiterService` matches request path against rate limit rules
-4. **Field Extraction**: If rule has body limiting enabled, `JsonPathExtractor` extracts the specified field from cached body
-5. **Identifier Determination**: `determineIdentifier()` selects the rate limiting identifier based on:
-   - Body field value (if available and enabled) → highest priority
-   - JWT claims (if enabled and extracted)
-   - Client IP (fallback)
-6. **Rate Check**: Rate limit checks are performed using the selected identifier
-7. **Response**: Request is allowed, queued, or rejected based on rate limit status
-
-### Priority Chain
-
-When determining the rate limiting identifier:
-
-```
-IF (body-based limiting enabled AND body field found) {
-    IF (combine_with_ip mode) {
-        use: "IP:body_field_value"
-    } ELSE {
-        use: "body_field_value"  // replace_ip mode
-    }
-} ELSE IF (JWT-based limiting enabled AND JWT found) {
-    use: "jwt_claims_combined"
-} ELSE {
-    use: "client_ip"  // default fallback
-}
-```
+1. **Filter**: `RateLimitFilter` caches request bodies for POST/PUT/PATCH
+2. **Rule Match**: `RateLimiterService` picks the first matching rule
+3. **Field Extraction**: `BodyFieldExtractor` reads the configured field using the request Content-Type (or `bodyContentType` if set)
+4. **Identifier Selection**: The identifier is chosen using the priority chain
+5. **Rate Check**: Token bucket and queueing rules are applied
 
 ## Architecture
 
-### JsonPathExtractor Utility
+### BodyFieldExtractor Utility
 
-Located in [util/JsonPathExtractor.java](backend/src/main/java/com/example/gateway/util/JsonPathExtractor.java):
+Located in [util/BodyFieldExtractor.java](backend/src/main/java/com/example/gateway/util/BodyFieldExtractor.java):
 
-- Supports simple fields: `"user_id"` → accesses `{"user_id": "value"}`
-- Supports nested paths: `"user.id"` → accesses `{"user": {"id": "value"}}`
-- Returns `null` if:
-  - Path doesn't exist
-  - Body is not valid JSON
-  - Field value is null
+- JSON dot paths: `user.id`
+- Form fields: `api_key=abc123`
+- XML XPath: `//user/id` or `user/id`
+- Multipart form fields: simple text parts (no file parsing)
 
 ### Service Integration
 
-`RateLimiterService`:
-- New method: `isAllowed(String path, String ip, String authHeader, byte[] bodyBytes)`
-- Returns to caller: `Mono<RateLimitResult>` (same as before)
-- Handles extraction and identifier determination internally
+`RateLimiterService` uses:
+
+```
+isAllowed(ServerWebExchange exchange, String path, String ip, String authHeader, byte[] bodyBytes)
+```
+
+The identifier is resolved in this order: Header > Cookie > Body field > JWT claims > IP.
 
 ### Request Counter Keying
 
-Request counters are stored with:
-- Primary Key: `(rule_id, client_ip)` - conceptually `client_ip` becomes "limiter_key"
-- When using body field: the extracted field value is used as the key
-- When combining IP + field: concatenated as `"IP:field_value"`
+- Primary key: `request_counter:<ruleId>:<identifier>`
+- For `combine_with_ip`, the identifier becomes `IP:value`
 
 ## Limitations & Caveats
 
-1. **Body is read once**: The gateway reads the entire request body to extract the field. This means:
-   - Applications expecting to read the body themselves may need adjustments
-   - Request size limits apply (configure in Spring Cloud Gateway if needed)
-   - No body re-streaming for upstream services (they receive the original body)
-
-2. **JSON parsing errors**: If body is not valid JSON, field extraction fails silently:
-   - Logs a debug message
-   - Falls back to next identifier option (JWT or IP)
-
-3. **Missing fields**: If configured field doesn't exist in JSON:
-   - Logs a debug message
-   - Falls back to JWT or IP-based limiting
-
-4. **No field type conversion**: Extracted values are always strings:
-   - Numeric GUIDs remain string form
-   - Booleans become "true" or "false" strings
-   - Objects/arrays become JSON string representation
-
-5. **Performance**: Body extraction adds slight overhead:
-   - Only for POST/PUT/PATCH requests with JSON content-type
-   - Only when body-based limiting is enabled on matching rule
-   - JSON parsing is cached in memory during request lifetime
-
-## Testing
-
-### Manual Test: Rate Limit by User ID
-
-```bash
-# Create a rule that rate limits by user_id
-curl -X PATCH http://localhost:8080/api/admin/rules/{rule-id}/body-limit \
-  -H "Content-Type: application/json" \
-  -d '{
-    "bodyLimitEnabled": true,
-    "bodyFieldPath": "user_id",
-    "bodyLimitType": "replace_ip"
-  }'
-
-# Make repeated requests with same user_id - should hit rate limit
-for i in {1..10}; do
-  curl -X POST http://localhost:8080/httpbin/post \
-    -H "Content-Type: application/json" \
-    -d '{"user_id":"user123","data":"test"}'
-  sleep 0.1
-done
-
-# Make request with different user_id - should NOT be rate limited
-curl -X POST http://localhost:8080/httpbin/post \
-  -H "Content-Type: application/json" \
-  -d '{"user_id":"user456","data":"test"}'
-```
-
-### Unit Test Example
-
-```java
-@Test
-void testBodyFieldExtraction() {
-    String json = "{\"user\": {\"id\": \"user123\"}, \"email\": \"test@example.com\"}";
-    
-    // Extract nested path
-    String userId = JsonPathExtractor.extractField(json.getBytes(), "user.id");
-    assertEquals("user123", userId);
-    
-    // Extract simple field
-    String email = JsonPathExtractor.extractField(json.getBytes(), "email");
-    assertEquals("test@example.com", email);
-    
-    // Non-existent path
-    String notFound = JsonPathExtractor.extractField(json.getBytes(), "nonexistent.path");
-    assertNull(notFound);
-}
-```
+1. **Body is read once**: The gateway caches the request body. Large payloads increase memory usage.
+2. **Content-Type mismatches**: If the request Content-Type does not match the actual payload, extraction will fail.
+3. **Multipart parsing is simplified**: Only simple text fields are supported.
+4. **XML namespaces**: Namespace-aware XPath is not enabled.
 
 ## Troubleshooting
 
 ### Body Field Not Being Extracted
 
-1. **Check rule configuration**: Verify `body_limit_enabled` is true and `body_field_path` is set
-2. **Check request content-type**: Must be `application/json` or contain "application/json"
-3. **Check JSON structure**: Ensure the field path matches your JSON (use dot notation for nesting)
-4. **Check logs**: Enable DEBUG logging for `JsonPathExtractor`:
-   ```yaml
-   logging.level.com.example.gateway.util.JsonPathExtractor: DEBUG
-   ```
+1. Verify `bodyLimitEnabled` and `bodyFieldPath` are set
+2. Ensure the Content-Type matches the actual payload, or set `bodyContentType` on the rule
+3. Use dot notation for JSON, XPath for XML, and field names for form bodies
+4. Enable DEBUG logs for `BodyFieldExtractor`:
+
+```yaml
+logging.level.com.example.gateway.util.BodyFieldExtractor: DEBUG
+```
 
 ### Rate Limit Not Triggering
 
-1. **Verify rule active**: `GET /api/admin/rules/active`
-2. **Refresh rule cache**: `POST http://localhost:8080/api/admin/rules/refresh`
-3. **Check identifier**: Log the determined identifier:
-   ```java
-   log.debug("Using identifier: {} (field: {})", identifier, field);
-   ```
-4. **Test with simple IP-based rule first**: Ensure rate limiting works before adding body complexity
+1. Check rule active: `GET /api/admin/rules/active`
+2. Refresh rule cache: `POST http://localhost:9090/api/admin/rules/refresh`
+3. Verify identifier selection in logs with DEBUG for `RateLimiterService`
 
-### Requests with No Body
+## See Also
 
-- If body is missing, `body_field_path` extraction returns null
-- Rate limiting falls back to JWT (if enabled) then IP
-- No error is logged, this is expected behavior
-
-## Frontend Integration
-
-In [Settings.jsx](frontend/src/pages/Settings.jsx), expose controls for:
-
-```javascript
-// Enable body-based rate limiting
-<Toggle 
-  label="Body Field Rate Limiting"
-  value={rule.bodyLimitEnabled}
-  onChange={(value) => updateRule({...rule, bodyLimitEnabled: value})}
-/>
-
-// Field path input
-<Input
-  label="Body Field Path"
-  placeholder="e.g., user_id, api_key, user.id"
-  value={rule.bodyFieldPath}
-  onChange={(value) => updateRule({...rule, bodyFieldPath: value})}
-  disabled={!rule.bodyLimitEnabled}
-/>
-
-// Limit type selector  
-<Select
-  label="Combining Mode"
-  value={rule.bodyLimitType || 'replace_ip'}
-  options={[
-    { value: 'replace_ip', label: 'Replace IP (use body field only)' },
-    { value: 'combine_with_ip', label: 'Combine with IP' }
-  ]}
-  onChange={(value) => updateRule({...rule, bodyLimitType: value})}
-  disabled={!rule.bodyLimitEnabled}
-/>
-```
-
+- [README.md](README.md)
+- [JWT Rate Limiting](JWT_RATE_LIMITING.md)
+- [Queueing Implementation](QUEUEING_IMPLEMENTATION.md)
 ## See Also
 
 - [Rate Limiting Implementation](../README.md#rate-limiting-modes)

@@ -14,7 +14,10 @@ Production-ready API gateway with advanced rate limiting, anti-bot defenses, rea
   - Supports standard and custom JWT claims
   - Multi-claim concatenation for complex identifiers
   - Automatic fallback to IP-based limiting
-- **Multiple Limit Types**: IP-based, JWT-based, session-based, custom headers
+- **Header/Cookie/Body-Based Limiting**
+  - Header or cookie identifiers with optional `IP:value` combination
+  - Body field extraction supports JSON, form URL-encoded, XML, and multipart
+- **Multiple Limit Types**: IP, JWT, header, cookie, body
 - **Per-route Configuration**: Different limits for different endpoints
 - **Real-time Updates**: Changes propagate instantly via service layer
 
@@ -63,7 +66,8 @@ Production-ready API gateway with advanced rate limiting, anti-bot defenses, rea
 ```bash
 docker compose up --build
 # Frontend (Admin UI): http://localhost:3000
-# Backend API:         http://localhost:8080
+# Gateway (public):    http://localhost:8080
+# Admin APIs:          http://localhost:9090/api
 # Redis:               localhost:6379
 ```
 
@@ -80,7 +84,7 @@ npm run dev  # Requires Node 18+
 ```bash
 cd backend
 mvn clean package -DskipTests
-java -jar target/gateway-application.jar
+java -jar target/*.jar
 ```
 
 ## 📚 Core Concepts
@@ -156,19 +160,35 @@ With claims `["sub", "tenant_id"]` and separator `:`, the rate limit identifier 
 
 **Test script:** `python test-jwt-rate-limit.py`
 
+#### 4. Header, Cookie, and Body-Based Identifiers
+Use non-IP identifiers directly from request metadata or payload fields:
+
+```json
+{
+  "pathPattern": "/api/orders/**",
+  "allowedRequests": 50,
+  "windowSeconds": 60,
+  "headerLimitEnabled": true,
+  "headerName": "X-API-Key",
+  "headerLimitType": "combine_with_ip"
+}
+```
+
+Body-based limiting supports JSON, form URL-encoded, XML, and multipart fields. See [BODY_BASED_RATE_LIMITING.md](BODY_BASED_RATE_LIMITING.md) for details.
+
 ### Anti-Bot Challenge Flow
 
 1. **Client requests form token**: `GET /api/tokens/form`
 2. **Server generates token** with timestamp, stores in cache
 3. **Client submits form** with:
-   - `X-Form-Token` header
-   - `X-Time-To-Submit` (milliseconds)
-   - `X-Idempotency-Key` (optional, for duplicate prevention)
-   - Honeypot field value (should be empty)
+  - `X-Form-Token` header
+  - `X-Form-Load-Time` (milliseconds since page load)
+  - `X-Idempotency-Key` (optional, for duplicate prevention)
+  - `X-Honeypot` (should be empty)
 4. **Server validates**:
    - Token exists and not used
    - Submit time > configured minimum (default: 2000ms)
-   - Honeypot field is empty
+  - Honeypot header is empty
    - Idempotency key not seen before
 5. **Accept or reject** based on validation results
 
@@ -190,6 +210,9 @@ Configure via Settings UI or `system_config` table:
 ## 🔌 API Reference
 
 ### Admin Endpoints
+
+Admin APIs are served on the admin server (default `http://localhost:9090/api`).
+If you access them through the frontend (Nginx), use `http://localhost:3000/poormansRateLimit/api`.
 
 #### Rate Limit Rules
 ```bash
@@ -241,6 +264,14 @@ DELETE /api/admin/rules/{id}
 
 # Refresh rules cache
 POST /api/admin/rules/refresh
+
+# Update only body-based settings (content-type is configured in full rule updates)
+PATCH /api/admin/rules/{id}/body-limit
+{
+  "bodyLimitEnabled": true,
+  "bodyFieldPath": "user_id",
+  "bodyLimitType": "replace_ip"
+}
 ```
 
 #### System Configuration
@@ -282,7 +313,9 @@ GET /api/analytics/timeseries
 GET /api/tokens/form
 {
   "token": "uuid-here",
-  "timestamp": 1739024400000
+  "loadTime": 1739024400000,
+  "honeypotField": "_hp_email",
+  "expiresIn": 600
 }
 
 # Get challenge page (if configured)
@@ -293,7 +326,7 @@ GET /api/tokens/challenge
 ### WebSocket
 ```javascript
 // Connect to real-time analytics
-const ws = new WebSocket('ws://localhost:8080/ws/analytics');
+const ws = new WebSocket('ws://localhost:8080/api/ws/analytics');
 ws.onmessage = (event) => {
   const update = JSON.parse(event.data);
   console.log('Requests allowed:', update.requestsAllowed);
@@ -403,6 +436,18 @@ frontend/src/
 - `request_stats:<minute>` (hash) - Time-windowed aggregates
 - `request_stats:index` (zset) - Minute buckets for time series
 
+## 🔁 Identifier Priority
+
+When multiple limit modes are configured, the gateway picks the identifier in this order:
+
+1. Header
+2. Cookie
+3. Body field
+4. JWT claims
+5. IP address
+
+Use `headerLimitType`, `cookieLimitType`, or `bodyLimitType` to combine with IP (`combine_with_ip`).
+
 ## 🔒 Security Considerations
 
 ### Configuration Keys
@@ -415,7 +460,7 @@ frontend/src/
 
 ### CORS
 - Configured at controller level via `@CrossOrigin` annotations
-- Frontend proxies `/api/**` to backend via Nginx (see `frontend/nginx.conf`)
+- Frontend proxies `/poormansRateLimit/api/**` to `backend:9090` and `/api/**` + `/api/ws/**` to `backend:8080` (see `frontend/nginx.conf`)
 
 ### Credentials
 - Redis connection config in `application.yml` and `docker-compose.yml`
@@ -448,7 +493,8 @@ docker compose logs frontend | tail -50
 | Service | Port | Description |
 |---------|------|-------------|
 | Frontend | 3000 | Admin UI (Nginx) |
-| Backend | 8080 | API Gateway + Admin API |
+| Gateway | 8080 | Public gateway routes |
+| Admin API | 9090 | Admin endpoints (/api/**) |
 | Redis | 6379 | Database |
 | Test Server | 9000 | Testing utility |
 

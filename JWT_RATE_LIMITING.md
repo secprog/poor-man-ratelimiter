@@ -66,7 +66,7 @@ The [Policies UI](frontend/src/pages/Policies.jsx) includes:
 #### Via API
 
 ```bash
-curl -X POST http://localhost:8080/api/admin/rules \
+curl -X POST http://localhost:9090/api/admin/rules \
   -H "Content-Type: application/json" \
   -d '{
     "pathPattern": "/api/tenant/**",
@@ -251,7 +251,7 @@ for i in range(150):
 ### Check Active Rules
 
 ```bash
-curl http://localhost:8080/api/admin/rules/active | jq '.'
+curl http://localhost:9090/api/admin/rules/active | jq '.'
 ```
 
 ### View Request Counters
@@ -318,7 +318,7 @@ Analytics track rate-limited requests regardless of whether JWT or IP is used. R
 **Debugging:**
 ```bash
 # Check rule configuration
-curl http://localhost:8080/api/admin/rules | jq '.[] | select(.pathPattern == "/api/**")'
+curl http://localhost:9090/api/admin/rules | jq '.[] | select(.pathPattern == "/api/**")'
 
 # Enable debug logs
 docker compose logs backend | grep -i jwt
@@ -365,7 +365,7 @@ Rate limiting performance (1000 concurrent requests):
 
 **Step 1:** Update rule via admin API
 ```bash
-curl -X PUT http://localhost:8080/api/admin/rules/{id} \
+curl -X PUT http://localhost:9090/api/admin/rules/{id} \
   -H "Content-Type: application/json" \
   -d '{
     "jwtEnabled": true,
@@ -376,7 +376,7 @@ curl -X PUT http://localhost:8080/api/admin/rules/{id} \
 
 **Step 2:** Restart gateway or refresh rules
 ```bash
-curl -X POST http://localhost:8080/api/admin/rules/refresh
+curl -X POST http://localhost:9090/api/admin/rules/refresh
 ```
 
 **Step 3:** Monitor logs for fallback warnings

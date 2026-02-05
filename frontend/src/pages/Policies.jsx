@@ -15,6 +15,7 @@ export default function Policies() {
 
     const [formData, setFormData] = useState({
         pathPattern: '',
+        targetUri: '',
         allowedRequests: 100,
         windowSeconds: 60,
         active: true,
@@ -85,6 +86,7 @@ export default function Policies() {
         setEditingPolicy(null);
         setFormData({
             pathPattern: '',
+            targetUri: '',
             allowedRequests: 100,
             windowSeconds: 60,
             active: true,
@@ -130,6 +132,7 @@ export default function Policies() {
         
         setFormData({
             pathPattern: policy.pathPattern,
+            targetUri: policy.targetUri || '',
             allowedRequests: policy.allowedRequests,
             windowSeconds: policy.windowSeconds,
             active: policy.active !== undefined ? policy.active : true,
@@ -182,6 +185,7 @@ export default function Policies() {
 
         const payload = {
             pathPattern: formData.pathPattern,
+            targetUri: formData.targetUri,
             allowedRequests: formData.allowedRequests,
             windowSeconds: formData.windowSeconds,
             active: formData.active,
@@ -264,6 +268,7 @@ export default function Policies() {
                         <tr>
                             <th className="px-6 py-3">Priority</th>
                             <th className="px-6 py-3">Path Pattern</th>
+                            <th className="px-6 py-3">Target URI</th>
                             <th className="px-6 py-3">Allowed</th>
                             <th className="px-6 py-3">Window</th>
                             <th className="px-6 py-3">Type</th>
@@ -273,7 +278,7 @@ export default function Policies() {
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                         {loading ? (
-                            <tr><td colSpan="7" className="p-6 text-center">Loading...</td></tr>
+                            <tr><td colSpan="8" className="p-6 text-center">Loading...</td></tr>
                         ) : policies.map((policy, index) => (
                             <tr key={policy.id} className="hover:bg-gray-50/50">
                                 <td className="px-6 py-4">
@@ -300,6 +305,7 @@ export default function Policies() {
                                     </div>
                                 </td>
                                 <td className="px-6 py-4 font-medium font-mono text-sm">{policy.pathPattern}</td>
+                                <td className="px-6 py-4 font-mono text-xs text-gray-600 break-all">{policy.targetUri || '-'}</td>
                                 <td className="px-6 py-4">{policy.allowedRequests} req</td>
                                 <td className="px-6 py-4">{policy.windowSeconds}s</td>
                                 <td className="px-6 py-4">
@@ -355,7 +361,7 @@ export default function Policies() {
                             </tr>
                         ))}
                         {!loading && policies.length === 0 && (
-                            <tr><td colSpan="7" className="p-6 text-center text-gray-500">No rules found. Click "New Rule" to create one.</td></tr>
+                            <tr><td colSpan="8" className="p-6 text-center text-gray-500">No rules found. Click "New Rule" to create one.</td></tr>
                         )}
                     </tbody>
                 </table>
@@ -405,6 +411,21 @@ export default function Policies() {
                                     required
                                 />
                                 <p className="text-xs text-gray-500 mt-1">Use Ant-style patterns: /** for all, /api/** for API routes</p>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Target URI
+                                </label>
+                                <input
+                                    type="text"
+                                    name="targetUri"
+                                    value={formData.targetUri}
+                                    onChange={handleInputChange}
+                                    placeholder="e.g., http://service:8080"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">Required for active, non-global rules</p>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">

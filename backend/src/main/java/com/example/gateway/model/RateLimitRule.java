@@ -14,6 +14,7 @@ public class RateLimitRule {
     @Id
     private UUID id;
     private String pathPattern;
+    private String targetUri;
     private int allowedRequests;
     private int windowSeconds;
     private boolean active;

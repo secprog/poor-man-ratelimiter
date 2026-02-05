@@ -2,6 +2,7 @@ package com.example.gateway.controller;
 
 import com.example.gateway.model.RateLimitRule;
 import com.example.gateway.service.RateLimiterService;
+import com.example.gateway.service.RouteSyncService;
 import com.example.gateway.store.RateLimitRuleStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,6 +21,7 @@ public class RateLimitRuleController {
 
     private final RateLimiterService rateLimiterService;
     private final RateLimitRuleStore ruleStore;
+    private final RouteSyncService routeSyncService;
 
     @GetMapping
     public Flux<RateLimitRule> getAllRules() {
@@ -42,10 +44,10 @@ public class RateLimitRuleController {
             rule.setId(UUID.randomUUID());
         }
         return ruleStore.save(rule)
-                .doOnSuccess(saved -> {
-                    log.info("Created new rate limit rule: {}", saved);
-                    rateLimiterService.refreshRules().subscribe();
-                });
+                .flatMap(saved -> routeSyncService.syncRule(saved)
+                        .then(rateLimiterService.refreshRules())
+                        .thenReturn(saved))
+                .doOnSuccess(saved -> log.info("Created new rate limit rule: {}", saved));
     }
 
     @PutMapping("/{id}")
@@ -53,11 +55,11 @@ public class RateLimitRuleController {
         return ruleStore.findById(id)
                 .flatMap(existing -> {
                     rule.setId(id);
-                    return ruleStore.save(rule)
-                            .doOnSuccess(updated -> {
-                                log.info("Updated rate limit rule: {}", updated);
-                                rateLimiterService.refreshRules().subscribe();
-                            });
+                return ruleStore.save(rule)
+                    .flatMap(updated -> routeSyncService.syncRule(updated)
+                        .then(rateLimiterService.refreshRules())
+                        .thenReturn(updated))
+                    .doOnSuccess(updated -> log.info("Updated rate limit rule: {}", updated));
                 });
     }
 
@@ -84,10 +86,9 @@ public class RateLimitRuleController {
     @DeleteMapping("/{id}")
     public Mono<Void> deleteRule(@PathVariable UUID id) {
         return ruleStore.deleteById(id)
-                .doOnSuccess(v -> {
-                    log.info("Deleted rate limit rule: {}", id);
-                    rateLimiterService.refreshRules().subscribe();
-                });
+                .then(routeSyncService.deleteRule(id))
+                .then(rateLimiterService.refreshRules())
+                .doOnSuccess(v -> log.info("Deleted rate limit rule: {}", id));
     }
 
     @PostMapping("/refresh")

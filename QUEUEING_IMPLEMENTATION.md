@@ -72,7 +72,7 @@ PATCH /api/admin/rules/{id}/queue
 
 ### 1. Enable Queueing on a Rule
 ```bash
-curl -X PATCH http://localhost:8080/api/admin/rules/{rule-id}/queue \
+curl -X PATCH http://localhost:9090/api/admin/rules/{rule-id}/queue \
   -H "Content-Type: application/json" \
   -d '{"queueEnabled":true,"maxQueueSize":5,"delayPerRequestMs":300}'
 ```

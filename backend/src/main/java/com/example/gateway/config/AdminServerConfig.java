@@ -7,6 +7,7 @@ import org.springframework.http.server.reactive.HttpHandler;
 import org.springframework.http.server.reactive.ReactorHttpHandlerAdapter;
 import org.springframework.web.server.WebHandler;
 import org.springframework.web.server.adapter.WebHttpHandlerBuilder;
+import reactor.netty.DisposableServer;
 import reactor.netty.http.server.HttpServer;
 
 /**
@@ -29,8 +30,8 @@ public class AdminServerConfig {
      * Accepts all requests (primarily /api/** routes).
      * Docker-compose maps to 127.0.0.1:9090 (localhost only).
      */
-    @Bean(initMethod = "bindNow", destroyMethod = "disposeNow")
-    public HttpServer adminHttpServer(WebHandler webHandler) {
+    @Bean(destroyMethod = "disposeNow")
+    public DisposableServer adminHttpServer(WebHandler webHandler) {
         log.info("Starting admin server on port 9090 (/api/** routes)");
         
         HttpHandler httpHandler = WebHttpHandlerBuilder.webHandler(webHandler).build();
@@ -40,7 +41,8 @@ public class AdminServerConfig {
             .host("0.0.0.0")
             .port(9090)
             .handle(adapter)
-            .doOnBind(conn -> log.info("Admin server successfully bound to port 9090"));
+            .doOnBind(conn -> log.info("Admin server successfully bound to port 9090"))
+            .bindNow();
     }
 }
 

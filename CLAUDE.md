@@ -108,12 +108,12 @@ python run-tests.py
 - `pages/Settings.jsx` - System config including anti-bot challenge types and difficulty
 
 **Utilities:**
-- `api.js` - Centralized axios client for backend API calls (points to `/api`, proxied by Nginx)
-- `utils/websocket.js` - Real-time analytics WebSocket client
+- `api.js` - Centralized axios client for gateway API calls (points to `/api`, proxied by Nginx)
+- `utils/websocket.js` - Real-time analytics WebSocket client (`/api/ws/analytics`)
 - `utils/formProtection.js` - Token-based anti-bot form helpers
 
 **Infrastructure:**
-- Nginx config in `frontend/nginx.conf` proxies `/api/` to backend:8080
+- Nginx config in `frontend/nginx.conf` proxies `/poormansRateLimit/api/` to backend:9090 and `/api/` + `/api/ws/` to backend:8080
 - Build artifacts in `frontend/dist` served by Nginx container
 
 ### Rate Limiting & Queueing (Leaky Bucket)
@@ -133,7 +133,7 @@ python run-tests.py
 
 **Admin API for Queue Configuration:**
 ```bash
-# Update queue settings for a rule
+# Update queue settings for a rule (admin API on 9090)
 PATCH /api/admin/rules/{id}/queue
 {
   "queueEnabled": true,
@@ -195,7 +195,8 @@ See `QUEUEING_IMPLEMENTATION.md` for detailed design notes.
 ## Service Ports
 
 - Frontend: 3000 (Nginx serving React app)
-- Backend: 8080 (Spring Gateway)
+- Gateway: 8080 (public routes)
+- Admin API: 9090 (admin endpoints)
 - Redis: 6379
 - Test Server: 9000 (Flask)
 
