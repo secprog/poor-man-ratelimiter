@@ -7,7 +7,7 @@ Production-ready API gateway with advanced rate limiting (token bucket + leaky b
 
 ### Backend (Spring Boot 3 + WebFlux)
 - **Always use reactive flows** (`Mono`, `Flux`) - avoid blocking operations in request paths
-- Use **R2DBC** for database access (reactive), never JDBC
+- Use **reactive Redis** for persistence, avoid blocking I/O
 - Leverage **Caffeine cache** for tokens, counters, and frequently accessed data
 - Apply **`@CrossOrigin`** on controllers for API endpoints
 - Use **Lombok** annotations (`@RequiredArgsConstructor`, `@Slf4j`, `@Data`) to reduce boilerplate
@@ -57,13 +57,13 @@ Production-ready API gateway with advanced rate limiting (token bucket + leaky b
   - NOTE: Does not validate JWT signatures (assumes upstream auth validated)
 
 - **[ConfigurationService.java](backend/src/main/java/com/example/gateway/service/ConfigurationService.java)**:
-  - Cached access to `system_config` table
+  - Cached access to Redis `system_config` hash
   - Methods: `getString()`, `getInt()`, `getBoolean()` with defaults
   - Used by filters and services for runtime configuration
 
 - **[AnalyticsService.java](backend/src/main/java/com/example/gateway/service/AnalyticsService.java)**:
   - Tracks allowed/blocked request counts
-  - Logs traffic to `traffic_logs` table via raw SQL INSERT (to avoid R2DBC UPDATE errors)
+  - Logs traffic to Redis `traffic_logs` list (JSON entries)
   - Broadcasts updates via `AnalyticsBroadcaster` for WebSocket clients
 
 #### Controllers
@@ -95,13 +95,13 @@ All controllers in [backend/src/main/java/com/example/gateway/controller](backen
 - **[AnalyticsBroadcaster.java](backend/src/main/java/com/example/gateway/websocket/AnalyticsBroadcaster.java)**:
   - Thread-safe Flux sink for broadcasting `AnalyticsUpdate` messages
 
-#### Database Layer
-- **R2DBC**: All repositories extend `ReactiveCrudRepository`
-- **Traffic logging**: Uses raw SQL `INSERT` in `AnalyticsService` to avoid UPDATE errors
-- **Schema**: [backend/src/main/resources/schema.sql](backend/src/main/resources/schema.sql)
-  - Tables: `rate_limit_policies`, `rate_limit_rules`, `system_config`, `traffic_logs`, `request_counters`, etc.
-  - Queue fields in `rate_limit_rules`: `queue_enabled`, `max_queue_size`, `delay_per_request_ms`
-  - JWT fields in `rate_limit_rules`: `jwt_enabled`, `jwt_claims` (JSON array), `jwt_claim_separator`
+#### Redis Storage
+- **Rules/Policies**: `rate_limit_rules`, `rate_limit_policies` hashes
+- **Counters**: `request_counter:<ruleId>:<identifier>` (JSON, TTL)
+- **Token bucket state**: `rate_limit_state:<key>` (hash)
+- **System config**: `system_config` hash
+- **Analytics**: `request_stats:<minute>` hashes + `request_stats:index` zset
+- **Traffic logs**: `traffic_logs` list (JSON)
 
 ### Frontend Structure
 
@@ -176,7 +176,7 @@ python test-gateway.py          # Terminal 2
 #### Token Bucket (Immediate Rejection)
 - Configured with `queueEnabled: false`
 - Rejects excess requests with 429 status
-- Implementation: `RateLimiterService.isAllowed()` checks counter in `request_counters` table
+- Implementation: `RateLimiterService.isAllowed()` checks Redis counter keys
 
 #### Leaky Bucket (Request Queueing)
 - Configured with `queueEnabled: true`, `maxQueueSize`, `delayPerRequestMs`
@@ -241,9 +241,8 @@ Configured via `antibot-challenge-type` in `system_config`:
 4. All connected clients receive `{requestsAllowed, requestsBlocked, activePolicies}` JSON
 
 #### Traffic Logging
-- Every request logged to `traffic_logs` table: `(id, timestamp, path, client_ip, status_code, allowed)`
-- Uses raw SQL INSERT to avoid R2DBC save() UPDATE errors
-- Queried for time series analytics in `AnalyticsController.getTimeSeries()`
+- Every request logged to Redis `traffic_logs` list (JSON entries)
+- Time-series analytics stored in Redis `request_stats:*` hashes
 
 ## Integration Points
 
@@ -258,10 +257,9 @@ Configured via `antibot-challenge-type` in `system_config`:
 - Default route: `/httpbin/**` → `https://httpbin.org/` (for testing)
 - Filters applied globally via `RateLimitFilter` and `AntiBotFilter`
 
-### Database Connection
-- R2DBC URL: `r2dbc:postgresql://postgres:5432/gateway_db`
-- Credentials: `postgres/password` (change in production!)
-- Schema init: [backend/src/main/resources/schema.sql](backend/src/main/resources/schema.sql) auto-applied on first run
+### Redis Connection
+- Host: `redis`, Port: `6379`
+- Configure via `spring.data.redis` in [application.yml](backend/src/main/resources/application.yml)
 
 ## Security Considerations
 
@@ -277,7 +275,7 @@ Configured via `antibot-challenge-type` in `system_config`:
 - Production: Configure specific origins, not `*`
 
 ### Credentials
-- Postgres: Change `postgres/password` in [docker-compose.yml](docker-compose.yml) and [application.yml](backend/src/main/resources/application.yml)
+- Redis: Use ACLs/passwords and private networking in production
 - Token secrets: Currently none (use UUIDs). Add HMAC/JWT signing in production.
 
 ## Common Tasks
@@ -285,7 +283,6 @@ Configured via `antibot-challenge-type` in `system_config`:
 ### Adding a New Rate Limit Rule
 1. **Via UI**: Policies page → Create button
 2. **Via API**: `POST /api/admin/rules` with JSON body
-3. **Via SQL**: INSERT into `rate_limit_rules` table, then `POST /api/admin/rules/refresh`
 
 ### Enabling Queueing on Existing Rule
 ```bash
@@ -310,14 +307,6 @@ curl -X PUT http://localhost:8080/api/admin/rules/{rule-id} \\
     "jwtClaimSeparator": ":"
   }'
 ```
-3. **Via SQL**:
-```sql
-UPDATE rate_limit_rules 
-SET jwt_enabled = true, 
-    jwt_claims = '["sub", "tenant_id"]', 
-    jwt_claim_separator = ':'
-WHERE path_pattern = '/api/tenant/**';
-```
 
 ### Testing JWT Rate Limiting
 ```bash
@@ -332,7 +321,7 @@ done
 ```
 
 ### Adding New System Config
-1. Insert into `system_config` table: `INSERT INTO system_config (config_key, config_value) VALUES ('my-key', 'my-value')`
+1. Add config via `POST /api/admin/config/{key}` or Settings UI
 2. Access in code: `configService.getString("my-key", "default-value")`
 3. Expose in Settings UI: Add form field in [Settings.jsx](frontend/src/pages/Settings.jsx)
 
@@ -343,8 +332,8 @@ done
 
 ### Debugging Rate Limit Issues
 1. Check logs: `docker compose logs backend | grep -i "rate"`
-2. Query counters: `SELECT * FROM request_counters WHERE client_ip = '<IP>';`
-3. Verify rule active: `SELECT * FROM rate_limit_rules WHERE active = true;`
+2. Inspect counters: `redis-cli --scan --pattern "request_counter:*" | head -n 20`
+3. Verify rule active: `GET /api/admin/rules/active`
 4. Check queue depth in logs: Look for "Delaying request" messages
 
 ### Debugging JWT Rate Limiting Issues
@@ -353,7 +342,7 @@ done
 3. Verify Authorization header: `curl -v -H "Authorization: Bearer <token>" <url>`
 4. Decode JWT payload: `echo "<token>" | cut -d. -f2 | base64 -d | jq '.'`
 5. Check fallback: Look for "falling back to IP" messages in logs
-6. Verify claims configuration: `SELECT jwt_enabled, jwt_claims FROM rate_limit_rules WHERE id = '<rule-id>'`
+6. Verify claims configuration: `GET /api/admin/rules/{rule-id}`
 
 ## Performance Tuning
 
@@ -365,14 +354,14 @@ In [RateLimiterConfig.java](backend/src/main/java/com/example/gateway/config/Rat
 
 Increase for high-traffic scenarios, monitor memory usage.
 
-### Database Connection Pool
+### Redis Connection
 In [application.yml](backend/src/main/resources/application.yml):
 ```yaml
 spring:
-  r2dbc:
-    pool:
-      initial-size: 10
-      max-size: 20
+  data:
+    redis:
+      host: redis
+      port: 6379
 ```
 
 ### Queue Cleanup Frequency
@@ -391,8 +380,7 @@ In [RateLimiterService.java](backend/src/main/java/com/example/gateway/service/R
 ## Troubleshooting
 
 ### Backend Won't Start
-- Check Postgres connection: `docker compose logs postgres`
-- Verify schema applied: `docker exec -it <postgres-container> psql -U postgres -d gateway_db -c "\\dt"`
+- Check Redis connection: `docker compose logs redis`
 
 ### Frontend 502 Bad Gateway
 - Backend not ready: `docker compose logs backend` for startup errors
@@ -404,7 +392,7 @@ In [RateLimiterService.java](backend/src/main/java/com/example/gateway/service/R
 - Verify `WebSocketConfig` registered in Spring Boot
 
 ### Rate Limits Not Enforcing
-- Check rule active: `SELECT * FROM rate_limit_rules WHERE path_pattern = '<pattern>';`
+- Check rule active: `GET /api/admin/rules/active`
 - Refresh cache: `POST http://localhost:8080/api/admin/rules/refresh`
 - Verify IP extraction: Log `clientIp` in `RateLimitFilter`
 

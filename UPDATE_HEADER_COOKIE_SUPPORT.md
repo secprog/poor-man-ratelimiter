@@ -5,7 +5,7 @@ This document tracks the changes needed to add header and cookie-based rate limi
 ## Files Modified
 
 ###  Backend Changes
-1. ✅ `schema.sql` - Added header and cookie fields
+1. ✅ `RateLimitRule` fields stored in Redis - Added header and cookie fields
 2. ✅ `RateLimitRule.java` - Added header and cookie properties
 3. ✅ `RateLimiterService.java` - Added header/cookie extraction logic  
 4. ✅ `RateLimitFilter.java` - Pass exchange to service

@@ -5,8 +5,8 @@ Added support for queueing (leaky bucket) rate limiting that delays requests ins
 
 ## Implementation Details
 
-### 1. Database Schema Updates (`schema.sql`)
-Added three new columns to `rate_limit_rules` table:
+### 1. Redis Rule Fields
+Queueing fields are stored alongside each rule in Redis (`rate_limit_rules` hash):
 - `queue_enabled` (BOOLEAN, default FALSE) - Enable/disable queueing for this rule
 - `max_queue_size` (INT, default 0) - Maximum number of requests that can be queued
 - `delay_per_request_ms` (INT, default 100) - Delay in milliseconds applied per queued position
@@ -163,7 +163,7 @@ python test-queueing.py
 3. `backend/src/main/java/com/example/gateway/service/RateLimiterService.java`
 4. `backend/src/main/java/com/example/gateway/filter/RateLimitFilter.java`
 5. `backend/src/main/java/com/example/gateway/controller/RateLimitRuleController.java` (new)
-6. `backend/src/main/resources/schema.sql`
+6. `backend/src/main/java/com/example/gateway/store/RateLimitRuleStore.java`
 7. `test-queueing.py` (new)
 
 ## API Summary
@@ -177,4 +177,4 @@ python test-queueing.py
 | `/api/admin/rules/{id}` | PUT | Update rule |
 | `/api/admin/rules/{id}/queue` | PATCH | Update queue settings |
 | `/api/admin/rules/{id}` | DELETE | Delete rule |
-| `/api/admin/rules/refresh` | POST | Reload rules from DB |
+| `/api/admin/rules/refresh` | POST | Reload rules from Redis |
