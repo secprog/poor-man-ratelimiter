@@ -12,6 +12,7 @@ def health():
 
 
 @app.get("/test/api/hello")
+@app.get("/api/hello")
 def hello():
     return jsonify({
         "message": "Hello from test server",
@@ -21,6 +22,7 @@ def hello():
 
 
 @app.route("/test/api/echo", methods=["GET", "POST", "PUT", "PATCH"])
+@app.route("/api/echo", methods=["GET", "POST", "PUT", "PATCH"])
 def echo():
     return jsonify({
         "method": request.method,
