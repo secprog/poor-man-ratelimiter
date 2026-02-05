@@ -7,6 +7,7 @@ This server will be proxied through the rate limiter gateway for testing.
 from flask import Flask, jsonify, request
 from datetime import datetime
 import logging
+import os
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -90,5 +91,7 @@ if __name__ == '__main__':
     print("\nThis server should be accessed through the gateway at:")
     print("  http://localhost:8080/test/...")
     print("=" * 60)
-    
-    app.run(host='0.0.0.0', port=9000, debug=True)
+
+    # Enable Flask debug mode only when explicitly requested via environment
+    debug_mode = os.getenv('FLASK_DEBUG') == '1'
+    app.run(host='0.0.0.0', port=9000, debug=debug_mode)
