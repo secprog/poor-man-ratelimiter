@@ -41,11 +41,20 @@ Production-ready API gateway with advanced rate limiting (token bucket + leaky b
 
 #### Services
 - **[RateLimiterService.java](backend/src/main/java/com/example/gateway/service/RateLimiterService.java)**:
-  - Core rate limiting logic with `isAllowed(path, ip)` returning `RateLimitResult`
+  - Core rate limiting logic with `isAllowed(path, ip, authHeader)` returning `RateLimitResult`
+  - Supports both IP-based and JWT-based rate limiting
+  - Determines identifier based on rule configuration (JWT claims or IP)
   - Queue management with atomic `ConcurrentHashMap<String, AtomicInteger>` for depth tracking
   - CAS (Compare-And-Set) loops ensure thread-safe queue operations
   - Background cleanup task every 60 seconds removes stale queue entries
   - Returns: `RateLimitResult(allowed, delayMs, queued)`
+
+- **[JwtService.java](backend/src/main/java/com/example/gateway/service/JwtService.java)**:
+  - Extracts JWT claims from Authorization header without signature verification
+  - Supports standard claims (sub, iss, aud, etc.) and custom claims
+  - Concatenates multiple claims with configurable separator
+  - Returns null for invalid tokens (triggers IP-based fallback)
+  - NOTE: Does not validate JWT signatures (assumes upstream auth validated)
 
 - **[ConfigurationService.java](backend/src/main/java/com/example/gateway/service/ConfigurationService.java)**:
   - Cached access to `system_config` table
@@ -92,6 +101,7 @@ All controllers in [backend/src/main/java/com/example/gateway/controller](backen
 - **Schema**: [backend/src/main/resources/schema.sql](backend/src/main/resources/schema.sql)
   - Tables: `rate_limit_policies`, `rate_limit_rules`, `system_config`, `traffic_logs`, `request_counters`, etc.
   - Queue fields in `rate_limit_rules`: `queue_enabled`, `max_queue_size`, `delay_per_request_ms`
+  - JWT fields in `rate_limit_rules`: `jwt_enabled`, `jwt_claims` (JSON array), `jwt_claim_separator`
 
 ### Frontend Structure
 
@@ -171,10 +181,24 @@ python test-gateway.py          # Terminal 2
 #### Leaky Bucket (Request Queueing)
 - Configured with `queueEnabled: true`, `maxQueueSize`, `delayPerRequestMs`
 - Delays excess requests instead of rejecting
-- Queue depth tracked atomically per rule+IP
+- Queue depth tracked atomically per rule+identifier
 - CAS loop ensures no race conditions: `queueDepth.compareAndSet(current, current+1)`
 - Background cleanup every 60s removes zero-depth entries
 - Response headers: `X-RateLimit-Queued: true`, `X-RateLimit-Delay-Ms: <ms>`
+
+#### JWT-Based Rate Limiting
+- Configured with `jwtEnabled: true`, `jwtClaims` (JSON array), `jwtClaimSeparator`
+- Extracts claims from Authorization header: `Bearer <token>`
+- Supports standard claims (sub, iss, aud, exp, iat) and custom claims
+- Concatenates multiple claims with separator (default: `:`)
+- **Does NOT validate JWT signatures** - assumes upstream auth validated token
+- Graceful fallback to IP-based limiting if:
+  - Authorization header missing
+  - Token is invalid or malformed
+  - Specified claims don't exist in token
+  - JWT claims configuration is invalid
+- Example: Claims `["sub", "tenant_id"]` with values `user123` and `acme-corp` → identifier: `user123:acme-corp`
+- See detailed docs: [JWT_RATE_LIMITING.md](JWT_RATE_LIMITING.md)
 
 ### Anti-Bot Protection
 
@@ -270,6 +294,43 @@ curl -X PATCH http://localhost:8080/api/admin/rules/{rule-id}/queue \\
   -d '{"queueEnabled":true,"maxQueueSize":10,"delayPerRequestMs":500}'
 ```
 
+### Enabling JWT-Based Rate Limiting
+1. **Via UI**: Policies page → Edit rule → Enable JWT → Enter claims (comma-separated)
+2. **Via API**: 
+```bash
+curl -X PUT http://localhost:8080/api/admin/rules/{rule-id} \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "pathPattern": "/api/tenant/**",
+    "allowedRequests": 100,
+    "windowSeconds": 60,
+    "active": true,
+    "jwtEnabled": true,
+    "jwtClaims": "[\"sub\", \"tenant_id\"]",
+    "jwtClaimSeparator": ":"
+  }'
+```
+3. **Via SQL**:
+```sql
+UPDATE rate_limit_rules 
+SET jwt_enabled = true, 
+    jwt_claims = '["sub", "tenant_id"]', 
+    jwt_claim_separator = ':'
+WHERE path_pattern = '/api/tenant/**';
+```
+
+### Testing JWT Rate Limiting
+```bash
+# Run automated test script
+python test-jwt-rate-limit.py
+
+# Manual testing with curl
+TOKEN="eyJhbGc..."  # Your JWT token
+for i in {1..10}; do
+  curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/test
+done
+```
+
 ### Adding New System Config
 1. Insert into `system_config` table: `INSERT INTO system_config (config_key, config_value) VALUES ('my-key', 'my-value')`
 2. Access in code: `configService.getString("my-key", "default-value")`
@@ -285,6 +346,14 @@ curl -X PATCH http://localhost:8080/api/admin/rules/{rule-id}/queue \\
 2. Query counters: `SELECT * FROM request_counters WHERE client_ip = '<IP>';`
 3. Verify rule active: `SELECT * FROM rate_limit_rules WHERE active = true;`
 4. Check queue depth in logs: Look for "Delaying request" messages
+
+### Debugging JWT Rate Limiting Issues
+1. Enable debug logging: `logging.level.com.example.gateway.service.JwtService: DEBUG`
+2. Check JWT extraction: Look for "Extracted JWT claims" or "Failed to extract" in logs
+3. Verify Authorization header: `curl -v -H "Authorization: Bearer <token>" <url>`
+4. Decode JWT payload: `echo "<token>" | cut -d. -f2 | base64 -d | jq '.'`
+5. Check fallback: Look for "falling back to IP" messages in logs
+6. Verify claims configuration: `SELECT jwt_enabled, jwt_claims FROM rate_limit_rules WHERE id = '<rule-id>'`
 
 ## Performance Tuning
 
@@ -314,6 +383,7 @@ In [RateLimiterService.java](backend/src/main/java/com/example/gateway/service/R
 ## Documentation Files
 - **[README.md](README.md)**: User-facing documentation
 - **[QUEUEING_IMPLEMENTATION.md](QUEUEING_IMPLEMENTATION.md)**: Leaky bucket technical deep-dive
+- **[JWT_RATE_LIMITING.md](JWT_RATE_LIMITING.md)**: JWT-based rate limiting guide
 - **[AUTOMATED_QUEUEING_TESTS.md](AUTOMATED_QUEUEING_TESTS.md)**: Test specifications for queueing feature
 - **[CODEBASE_OVERVIEW.md](CODEBASE_OVERVIEW.md)**: Architectural summary
 - **[TEST-README.md](TEST-README.md)**: Testing instructions

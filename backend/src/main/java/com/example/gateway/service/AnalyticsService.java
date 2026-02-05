@@ -87,12 +87,14 @@ public class AnalyticsService {
     }
 
     public Mono<StatsSummary> getSummary() {
-        // Simple summary: All time or last 24h. Let's do all time for now as table
-        // grows.
-        // Better: Last 24 hours.
+        // Last 24 hours to match the time series charts
+        Instant startTime = Instant.now().minus(24, ChronoUnit.HOURS);
+        
         return databaseClient.sql(
                 "SELECT SUM(allowed_count) as total_allowed, SUM(blocked_count) as total_blocked " +
-                        "FROM request_stats")
+                        "FROM request_stats " +
+                        "WHERE time_window >= :startTime")
+                .bind("startTime", startTime)
                 .map((row, meta) -> new StatsSummary(
                         row.get("total_allowed", Long.class) != null ? row.get("total_allowed", Long.class) : 0L,
                         row.get("total_blocked", Long.class) != null ? row.get("total_blocked", Long.class) : 0L))

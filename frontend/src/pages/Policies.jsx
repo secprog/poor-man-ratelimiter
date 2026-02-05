@@ -14,14 +14,29 @@ export default function Policies() {
     const [honeypotValue, setHoneypotValue] = useState('');
 
     const [formData, setFormData] = useState({
-        routePattern: '',
-        limitType: 'IP_BASED',
-        replenishRate: 10,
-        burstCapacity: 20,
-        requestedTokens: 1,
+        pathPattern: '',
+        allowedRequests: 100,
+        windowSeconds: 60,
+        active: true,
+        queueEnabled: false,
+        maxQueueSize: 10,
+        delayPerRequestMs: 500,
+        // JWT fields
+        jwtEnabled: false,
+        jwtClaims: '',  // Comma-separated list shown to user, converted to JSON array
+        jwtClaimSeparator: ':',
+        // Body-based fields
+        bodyLimitEnabled: false,
+        bodyFieldPath: '',
+        bodyLimitType: 'replace_ip',
+        // Header-based fields
+        headerLimitEnabled: false,
         headerName: '',
-        sessionCookieName: '',
-        trustProxy: false
+        headerLimitType: 'replace_ip',
+        // Cookie-based fields
+        cookieLimitEnabled: false,
+        cookieName: '',
+        cookieLimitType: 'replace_ip'
     });
 
     useEffect(() => {
@@ -30,7 +45,7 @@ export default function Policies() {
 
     const fetchPolicies = async () => {
         try {
-            const res = await api.get('/admin/policies');
+            const res = await api.get('/admin/rules');
             setPolicies(res.data);
         } catch (err) {
             console.error("Failed to fetch policies", err);
@@ -49,14 +64,25 @@ export default function Policies() {
     const openCreateModal = async () => {
         setEditingPolicy(null);
         setFormData({
-            routePattern: '',
-            limitType: 'IP_BASED',
-            replenishRate: 10,
-            burstCapacity: 20,
-            requestedTokens: 1,
+            pathPattern: '',
+            allowedRequests: 100,
+            windowSeconds: 60,
+            active: true,
+            queueEnabled: false,
+            maxQueueSize: 10,
+            delayPerRequestMs: 500,
+            jwtEnabled: false,
+            jwtClaims: '',
+            jwtClaimSeparator: ':',
+            bodyLimitEnabled: false,
+            bodyFieldPath: '',
+            bodyLimitType: 'replace_ip',
+            headerLimitEnabled: false,
             headerName: '',
-            sessionCookieName: '',
-            trustProxy: false
+            headerLimitType: 'replace_ip',
+            cookieLimitEnabled: false,
+            cookieName: '',
+            cookieLimitType: 'replace_ip'
         });
         setModalOpen(true);
         await prepareForm();
@@ -64,15 +90,38 @@ export default function Policies() {
 
     const openEditModal = async (policy) => {
         setEditingPolicy(policy);
+        
+        // Parse JWT claims from JSON array to comma-separated string
+        let jwtClaimsStr = '';
+        try {
+            if (policy.jwtClaims) {
+                const claimsArray = JSON.parse(policy.jwtClaims);
+                jwtClaimsStr = claimsArray.join(', ');
+            }
+        } catch (e) {
+            console.warn("Failed to parse JWT claims", e);
+        }
+        
         setFormData({
-            routePattern: policy.routePattern,
-            limitType: policy.limitType,
-            replenishRate: policy.replenishRate,
-            burstCapacity: policy.burstCapacity,
-            requestedTokens: policy.requestedTokens,
+            pathPattern: policy.pathPattern,
+            allowedRequests: policy.allowedRequests,
+            windowSeconds: policy.windowSeconds,
+            active: policy.active !== undefined ? policy.active : true,
+            queueEnabled: policy.queueEnabled || false,
+            maxQueueSize: policy.maxQueueSize || 10,
+            delayPerRequestMs: policy.delayPerRequestMs || 500,
+            jwtEnabled: policy.jwtEnabled || false,
+            jwtClaims: jwtClaimsStr,
+            jwtClaimSeparator: policy.jwtClaimSeparator || ':',
+            bodyLimitEnabled: policy.bodyLimitEnabled || false,
+            bodyFieldPath: policy.bodyFieldPath || '',
+            bodyLimitType: policy.bodyLimitType || 'replace_ip',
+            headerLimitEnabled: policy.headerLimitEnabled || false,
             headerName: policy.headerName || '',
-            sessionCookieName: policy.sessionCookieName || '',
-            trustProxy: policy.trustProxy || false
+            headerLimitType: policy.headerLimitType || 'replace_ip',
+            cookieLimitEnabled: policy.cookieLimitEnabled || false,
+            cookieName: policy.cookieName || '',
+            cookieLimitType: policy.cookieLimitType || 'replace_ip'
         });
         setModalOpen(true);
         await prepareForm();
@@ -90,11 +139,26 @@ export default function Policies() {
         // Prepare headers with anti-bot token
         const headers = getAntiBotHeaders(formTokenData, honeypotValue);
 
+        // Convert comma-separated JWT claims to JSON array
+        let jwtClaimsJson = null;
+        if (formData.jwtEnabled && formData.jwtClaims) {
+            const claimsArray = formData.jwtClaims
+                .split(',')
+                .map(c => c.trim())
+                .filter(c => c.length > 0);
+            jwtClaimsJson = JSON.stringify(claimsArray);
+        }
+
+        const payload = {
+            ...formData,
+            jwtClaims: jwtClaimsJson
+        };
+
         try {
             if (editingPolicy) {
-                await api.put(`/admin/policies/${editingPolicy.policyId}`, formData, { headers });
+                await api.put(`/admin/rules/${editingPolicy.id}`, payload, { headers });
             } else {
-                await api.post('/admin/policies', formData, { headers });
+                await api.post('/admin/rules', payload, { headers });
             }
             closeModal();
             fetchPolicies();
@@ -115,8 +179,7 @@ export default function Policies() {
     const handleDelete = async (policyId) => {
         if (!confirm("Are you sure you want to delete this policy?")) return;
         try {
-            // Delete doesn't necessarily need anti-bot token as it's idempotent, but could add it if method was strict
-            await api.delete(`/admin/policies/${policyId}`);
+            await api.delete(`/admin/rules/${policyId}`);
             fetchPolicies();
         } catch (err) {
             console.error("Failed to delete policy", err);
@@ -135,13 +198,13 @@ export default function Policies() {
     return (
         <div>
             <div className="flex justify-between items-center mb-6">
-                <h1 className="text-2xl font-bold">Rate Limit Policies</h1>
+                <h1 className="text-2xl font-bold">Rate Limit Rules</h1>
                 <button
                     onClick={openCreateModal}
                     className="flex items-center space-x-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
                 >
                     <Plus size={20} />
-                    <span>New Policy</span>
+                    <span>New Rule</span>
                 </button>
             </div>
 
@@ -149,26 +212,48 @@ export default function Policies() {
                 <table className="w-full text-left">
                     <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
                         <tr>
-                            <th className="px-6 py-3">Route Pattern</th>
+                            <th className="px-6 py-3">Path Pattern</th>
+                            <th className="px-6 py-3">Allowed</th>
+                            <th className="px-6 py-3">Window</th>
                             <th className="px-6 py-3">Type</th>
-                            <th className="px-6 py-3">Rate (req/s)</th>
-                            <th className="px-6 py-3">Burst</th>
+                            <th className="px-6 py-3">Status</th>
                             <th className="px-6 py-3">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                         {loading ? (
-                            <tr><td colSpan="5" className="p-6 text-center">Loading...</td></tr>
+                            <tr><td colSpan="6" className="p-6 text-center">Loading...</td></tr>
                         ) : policies.map((policy) => (
-                            <tr key={policy.policyId} className="hover:bg-gray-50/50">
-                                <td className="px-6 py-4 font-medium font-mono text-sm">{policy.routePattern}</td>
+                            <tr key={policy.id} className="hover:bg-gray-50/50">
+                                <td className="px-6 py-4 font-medium font-mono text-sm">{policy.pathPattern}</td>
+                                <td className="px-6 py-4">{policy.allowedRequests} req</td>
+                                <td className="px-6 py-4">{policy.windowSeconds}s</td>
                                 <td className="px-6 py-4">
-                                    <span className="px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
-                                        {policy.limitType}
-                                    </span>
+                                    {policy.jwtEnabled ? (
+                                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
+                                            JWT
+                                        </span>
+                                    ) : policy.bodyLimitEnabled ? (
+                                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
+                                            BODY
+                                        </span>
+                                    ) : (
+                                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+                                            IP
+                                        </span>
+                                    )}
                                 </td>
-                                <td className="px-6 py-4">{policy.replenishRate}</td>
-                                <td className="px-6 py-4">{policy.burstCapacity}</td>
+                                <td className="px-6 py-4">
+                                    {policy.active ? (
+                                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                                            Active
+                                        </span>
+                                    ) : (
+                                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
+                                            Inactive
+                                        </span>
+                                    )}
+                                </td>
                                 <td className="px-6 py-4 flex space-x-3 text-gray-400">
                                     <button
                                         onClick={() => openEditModal(policy)}
@@ -178,7 +263,7 @@ export default function Policies() {
                                         <Edit size={18} />
                                     </button>
                                     <button
-                                        onClick={() => handleDelete(policy.policyId)}
+                                        onClick={() => handleDelete(policy.id)}
                                         className="hover:text-red-600 transition"
                                         title="Delete"
                                     >
@@ -188,7 +273,7 @@ export default function Policies() {
                             </tr>
                         ))}
                         {!loading && policies.length === 0 && (
-                            <tr><td colSpan="5" className="p-6 text-center text-gray-500">No policies found. Click "New Policy" to create one.</td></tr>
+                            <tr><td colSpan="6" className="p-6 text-center text-gray-500">No rules found. Click "New Rule" to create one.</td></tr>
                         )}
                     </tbody>
                 </table>
@@ -197,10 +282,10 @@ export default function Policies() {
             {/* Modal */}
             {modalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
                         <div className="flex items-center justify-between p-4 border-b border-gray-100">
                             <h2 className="text-lg font-semibold">
-                                {editingPolicy ? 'Edit Policy' : 'Create New Policy'}
+                                {editingPolicy ? 'Edit Rule' : 'Create New Rule'}
                             </h2>
                             <button onClick={closeModal} className="text-gray-400 hover:text-gray-600">
                                 <X size={20} />
@@ -226,12 +311,12 @@ export default function Policies() {
 
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Route Pattern
+                                    Path Pattern
                                 </label>
                                 <input
                                     type="text"
-                                    name="routePattern"
-                                    value={formData.routePattern}
+                                    name="pathPattern"
+                                    value={formData.pathPattern}
                                     onChange={handleInputChange}
                                     placeholder="e.g., /api/v1/** or /**"
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -240,168 +325,267 @@ export default function Policies() {
                                 <p className="text-xs text-gray-500 mt-1">Use Ant-style patterns: /** for all, /api/** for API routes</p>
                             </div>
 
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Limit Type
-                                </label>
-                                <select
-                                    name="limitType"
-                                    value={formData.limitType}
-                                    onChange={handleInputChange}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                >
-                                    <option value="IP_BASED">IP Based (Default)</option>
-                                    <option value="USER_BASED">User Based (Principal / X-User-Id)</option>
-                                    <option value="API_KEY">API Key (X-API-Key)</option>
-                                    <option value="SESSION_BASED">Session Cookie</option>
-                                    <option value="GLOBAL">Global (All Requests)</option>
-                                </select>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Allowed Requests
+                                    </label>
+                                    <input
+                                        type="number"
+                                        name="allowedRequests"
+                                        value={formData.allowedRequests}
+                                        onChange={handleInputChange}
+                                        min="1"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Window (seconds)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        name="windowSeconds"
+                                        value={formData.windowSeconds}
+                                        onChange={handleInputChange}
+                                        min="1"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                        required
+                                    />
+                                </div>
                             </div>
 
-                            {/* Per-Policy Configuration Fields */}
-                            {formData.limitType === 'IP_BASED' && (
-                                <div className="space-y-3">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            IP Header Name (optional)
-                                        </label>
-                                        <input
-                                            type="text"
-                                            name="headerName"
-                                            value={formData.headerName}
-                                            onChange={handleInputChange}
-                                            placeholder="e.g., X-Forwarded-For (leave empty for global default)"
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                                        />
-                                        <p className="text-xs text-gray-500 mt-1">Overrides global ip-header-name setting for this rule</p>
-                                    </div>
+                            <div>
+                                <label className="flex items-center space-x-2">
+                                    <input
+                                        type="checkbox"
+                                        name="active"
+                                        checked={formData.active}
+                                        onChange={handleInputChange}
+                                        className="w-4 h-4 rounded border-gray-300"
+                                    />
+                                    <span className="text-sm font-medium text-gray-700">Active</span>
+                                </label>
+                            </div>
+
+                            {/* JWT Configuration */}
+                            <div className="border-t border-gray-200 pt-4">
+                                <h3 className="text-sm font-semibold text-gray-700 mb-3">JWT-Based Rate Limiting</h3>
+                                
+                                <div className="space-y-4">
                                     <div>
                                         <label className="flex items-center space-x-2">
                                             <input
                                                 type="checkbox"
-                                                name="trustProxy"
-                                                checked={formData.trustProxy || false}
+                                                name="jwtEnabled"
+                                                checked={formData.jwtEnabled}
                                                 onChange={handleInputChange}
                                                 className="w-4 h-4 rounded border-gray-300"
                                             />
-                                            <span className="text-sm font-medium text-gray-700">Trust X-Forwarded-For (optional)</span>
+                                            <span className="text-sm font-medium text-gray-700">Enable JWT-based rate limiting</span>
                                         </label>
-                                        <p className="text-xs text-gray-500 mt-1">Overrides global trust-x-forwarded-for setting for this rule</p>
+                                        <p className="text-xs text-gray-500 mt-1 ml-6">
+                                            Rate limit based on JWT claims from Authorization header instead of IP address
+                                        </p>
                                     </div>
-                                </div>
-                            )}
 
-                            {formData.limitType === 'USER_BASED' && (
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        User ID Header (optional)
-                                    </label>
-                                    <input
-                                        type="text"
-                                        name="headerName"
-                                        value={formData.headerName}
-                                        onChange={handleInputChange}
-                                        placeholder="e.g., X-User-Id (leave empty for global default)"
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                    />
-                                    <p className="text-xs text-gray-500 mt-1">Overrides global user-id-header-name setting for this rule</p>
-                                </div>
-                            )}
+                                    {formData.jwtEnabled && (
+                                        <>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    JWT Claims (comma-separated)
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    name="jwtClaims"
+                                                    value={formData.jwtClaims}
+                                                    onChange={handleInputChange}
+                                                    placeholder="e.g., sub, tenant_id, user_role"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                    required={formData.jwtEnabled}
+                                                />
+                                                <p className="text-xs text-gray-500 mt-1">
+                                                    Standard claims: sub, iss, aud, exp, iat, etc. Custom claims are also supported.
+                                                    Multiple claims will be concatenated.
+                                                </p>
+                                            </div>
 
-                            {formData.limitType === 'API_KEY' && (
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        API Key Header (optional)
-                                    </label>
-                                    <input
-                                        type="text"
-                                        name="headerName"
-                                        value={formData.headerName}
-                                        onChange={handleInputChange}
-                                        placeholder="e.g., X-API-Key (leave empty for global default)"
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                    />
-                                    <p className="text-xs text-gray-500 mt-1">Overrides global api-key-header-name setting for this rule</p>
-                                </div>
-                            )}
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    Claim Separator
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    name="jwtClaimSeparator"
+                                                    value={formData.jwtClaimSeparator}
+                                                    onChange={handleInputChange}
+                                                    placeholder=":"
+                                                    maxLength="10"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                />
+                                                <p className="text-xs text-gray-500 mt-1">
+                                                    Character(s) used to join multiple claim values (default: ":")
+                                                </p>
+                                            </div>
 
-                            {formData.limitType === 'SESSION_BASED' && (
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Session Cookie Name (optional)
-                                    </label>
-                                    <input
-                                        type="text"
-                                        name="sessionCookieName"
-                                        value={formData.sessionCookieName}
-                                        onChange={handleInputChange}
-                                        placeholder="e.g., JSESSIONID (leave empty for global default)"
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                    />
-                                    <p className="text-xs text-gray-500 mt-1">Overrides global session-cookie-name setting for this rule</p>
+                                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                                <div className="flex items-start space-x-2">
+                                                    <AlertTriangle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                                                    <div className="text-sm text-blue-800">
+                                                        <p className="font-semibold">JWT Rate Limiting Behavior</p>
+                                                        <p className="mt-1">
+                                                            When enabled, the gateway will extract the specified claims from the JWT token 
+                                                            in the Authorization header. If the token is missing or invalid, the system will 
+                                                            fall back to IP-based rate limiting.
+                                                        </p>
+                                                        <p className="mt-2">
+                                                            <strong>Example:</strong> Claims "sub, tenant_id" with values "user123" and "acme-corp" 
+                                                            will create identifier: "user123:acme-corp"
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
-                            )}
+                            </div>
 
-                            {/* Security Warning for IP_BASED */}
-                            {formData.limitType === 'IP_BASED' && (
-                                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                                    <div className="flex items-start space-x-2">
-                                        <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                                        <div className="text-sm text-amber-800">
-                                            <p className="font-semibold">X-Forwarded-For Security Warning</p>
-                                            <p className="mt-1">
-                                                If your gateway is behind a proxy/load balancer, ensure <code className="bg-amber-100 px-1 rounded">trust-x-forwarded-for</code> is
-                                                enabled in the backend config. <strong>Only enable this if you control the proxy</strong> and
-                                                it correctly sets X-Forwarded-For. Otherwise, attackers can spoof their IP!
-                                            </p>
-                                        </div>
+                            {/* Body-based Rate Limiting */}
+                            <div className="border-t border-gray-200 pt-4">
+                                <h3 className="text-sm font-semibold text-gray-700 mb-3">Body-based Rate Limiting</h3>
+                                
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="flex items-center space-x-2">
+                                            <input
+                                                type="checkbox"
+                                                name="bodyLimitEnabled"
+                                                checked={formData.bodyLimitEnabled}
+                                                onChange={handleInputChange}
+                                                className="w-4 h-4 rounded border-gray-300"
+                                            />
+                                            <span className="text-sm font-medium text-gray-700">Enable body-based rate limiting</span>
+                                        </label>
+                                        <p className="text-xs text-gray-500 mt-1 ml-6">
+                                            Rate limit based on field from request body (e.g., user_id, api_key, cookie value)
+                                        </p>
                                     </div>
-                                </div>
-                            )}
 
-                            {/* Security Warning for SESSION_BASED */}
-                            {formData.limitType === 'SESSION_BASED' && (
-                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                                    <div className="flex items-start space-x-2">
-                                        <AlertTriangle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                                        <div className="text-sm text-blue-800">
-                                            <p className="font-semibold">Session Cookie Configuration</p>
-                                            <p className="mt-1">
-                                                By default, uses <code className="bg-blue-100 px-1 rounded">JSESSIONID</code> cookie. Configure a custom session cookie name via the <code className="bg-blue-100 px-1 rounded">session-cookie-name</code> system setting if your application uses a different cookie name.
-                                            </p>
-                                        </div>
+                                    {formData.bodyLimitEnabled && (
+                                        <>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    Body Field Path
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    name="bodyFieldPath"
+                                                    value={formData.bodyFieldPath}
+                                                    onChange={handleInputChange}
+                                                    placeholder="e.g., user_id, api_key, user.id"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                    required={formData.bodyLimitEnabled}
+                                                />
+                                                <p className="text-xs text-gray-500 mt-1">
+                                                    JSONPath or simple field name to extract from request body. Supports nested fields with dot notation.
+                                                </p>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    Limit Type
+                                                </label>
+                                                <select
+                                                    name="bodyLimitType"
+                                                    value={formData.bodyLimitType}
+                                                    onChange={handleInputChange}
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                >
+                                                    <option value="replace_ip">Replace IP (use body field only)</option>
+                                                    <option value="combine_with_ip">Combine with IP (IP + body field)</option>
+                                                </select>
+                                                <p className="text-xs text-gray-500 mt-1">
+                                                    Choose how to use the body field value for rate limiting
+                                                </p>
+                                            </div>
+
+                                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                                <div className="flex items-start space-x-2">
+                                                    <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                                                    <div className="text-sm text-amber-800">
+                                                        <p className="font-semibold">Body-based Rate Limiting Behavior</p>
+                                                        <p className="mt-1">
+                                                            When enabled, the gateway will extract the specified field from the request body.
+                                                            If the field is missing or body is invalid, the system will fall back to IP-based rate limiting.
+                                                        </p>
+                                                        <p className="mt-2">
+                                                            <strong>Example:</strong> Field "user_id" with value "user123" in replace_ip mode
+                                                            will rate limit by "user123" instead of client IP.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Queue Configuration */}
+                            <div className="border-t border-gray-200 pt-4">
+                                <h3 className="text-sm font-semibold text-gray-700 mb-3">Request Queueing</h3>
+                                
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="flex items-center space-x-2">
+                                            <input
+                                                type="checkbox"
+                                                name="queueEnabled"
+                                                checked={formData.queueEnabled}
+                                                onChange={handleInputChange}
+                                                className="w-4 h-4 rounded border-gray-300"
+                                            />
+                                            <span className="text-sm font-medium text-gray-700">Enable request queueing</span>
+                                        </label>
+                                        <p className="text-xs text-gray-500 mt-1 ml-6">
+                                            Delay excess requests instead of rejecting them (leaky bucket)
+                                        </p>
                                     </div>
-                                </div>
-                            )}
 
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Rate (req/sec)
-                                    </label>
-                                    <input
-                                        type="number"
-                                        name="replenishRate"
-                                        value={formData.replenishRate}
-                                        onChange={handleInputChange}
-                                        min="1"
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Burst Capacity
-                                    </label>
-                                    <input
-                                        type="number"
-                                        name="burstCapacity"
-                                        value={formData.burstCapacity}
-                                        onChange={handleInputChange}
-                                        min="1"
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                        required
-                                    />
+                                    {formData.queueEnabled && (
+                                        <>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    Max Queue Size
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    name="maxQueueSize"
+                                                    value={formData.maxQueueSize}
+                                                    onChange={handleInputChange}
+                                                    min="1"
+                                                    max="100"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    Delay Per Request (ms)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    name="delayPerRequestMs"
+                                                    value={formData.delayPerRequestMs}
+                                                    onChange={handleInputChange}
+                                                    min="100"
+                                                    max="5000"
+                                                    step="100"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                />
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                             </div>
 

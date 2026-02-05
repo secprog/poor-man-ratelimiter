@@ -96,10 +96,38 @@ public class RateLimitRuleController {
         return rateLimiterService.refreshRules();
     }
 
+    @PatchMapping("/{id}/body-limit")
+    public Mono<RateLimitRule> updateBodyLimitSettings(
+            @PathVariable UUID id,
+            @RequestBody BodyLimitConfig bodyLimitConfig) {
+        
+        return ruleRepository.findById(id)
+                .flatMap(rule -> {
+                    rule.setBodyLimitEnabled(bodyLimitConfig.bodyLimitEnabled);
+                    rule.setBodyFieldPath(bodyLimitConfig.bodyFieldPath);
+                    rule.setBodyLimitType(bodyLimitConfig.bodyLimitType);
+                    
+                    return ruleRepository.save(rule)
+                            .doOnSuccess(updated -> {
+                                log.info("Updated body limit settings for rule {}: enabled={}, fieldPath={}, type={}", 
+                                        id, bodyLimitConfig.bodyLimitEnabled, bodyLimitConfig.bodyFieldPath, 
+                                        bodyLimitConfig.bodyLimitType);
+                                rateLimiterService.refreshRules().subscribe();
+                            });
+                });
+    }
+
     // DTO for queue configuration
     public static class QueueConfig {
         public boolean queueEnabled;
         public int maxQueueSize;
         public int delayPerRequestMs;
+    }
+
+    // DTO for body-based rate limiting configuration
+    public static class BodyLimitConfig {
+        public boolean bodyLimitEnabled;      // Enable/disable body-based rate limiting
+        public String bodyFieldPath;          // JSON path to extract (e.g., "user_id", "api_key", "user.id")
+        public String bodyLimitType;          // "replace_ip" (use body field instead of IP) or "combine_with_ip"
     }
 }

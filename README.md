@@ -10,7 +10,11 @@ Production-ready API gateway with advanced rate limiting, anti-bot defenses, rea
   - Configurable queue size and per-request delay
   - Atomic queue depth tracking prevents race conditions
   - Automatic queue cleanup and monitoring
-- **Multiple Limit Types**: IP-based, session-based, custom headers
+- **JWT-Based Rate Limiting** - rate limit by JWT token claims (user ID, tenant ID, custom claims)
+  - Supports standard and custom JWT claims
+  - Multi-claim concatenation for complex identifiers
+  - Automatic fallback to IP-based limiting
+- **Multiple Limit Types**: IP-based, JWT-based, session-based, custom headers
 - **Per-route Configuration**: Different limits for different endpoints
 - **Real-time Updates**: Changes propagate instantly via service layer
 
@@ -110,6 +114,40 @@ X-RateLimit-Queued: true
 X-RateLimit-Delay-Ms: 1500
 ```
 
+#### 3. JWT-Based Rate Limiting
+Rate limit based on JWT token claims instead of IP addresses:
+```json
+{
+  "pathPattern": "/api/tenant/**",
+  "allowedRequests": 100,
+  "windowSeconds": 60,
+  "jwtEnabled": true,
+  "jwtClaims": "[\"sub\", \"tenant_id\"]",
+  "jwtClaimSeparator": ":"
+}
+```
+
+**Features**:
+- Extract standard (sub, iss, aud) and custom JWT claims
+- Concatenate multiple claims for unique identifiers (e.g., `user-123:tenant-xyz`)
+- Automatic fallback to IP-based limiting if JWT is missing/invalid
+- No signature verification required (assumes upstream authentication)
+
+**Example JWT Payload**:
+```json
+{
+  "sub": "user-12345",
+  "tenant_id": "acme-corp",
+  "user_role": "admin"
+}
+```
+
+With claims `["sub", "tenant_id"]` and separator `:`, the rate limit identifier becomes: `user-12345:acme-corp`
+
+**See detailed documentation:** [JWT_RATE_LIMITING.md](JWT_RATE_LIMITING.md)
+
+**Test script:** `python test-jwt-rate-limit.py`
+
 ### Anti-Bot Challenge Flow
 
 1. **Client requests form token**: `GET /api/tokens/form`
@@ -163,7 +201,20 @@ POST /api/admin/rules
   "allowedRequests": 50,
   "windowSeconds": 60,
   "active": true,
-  "queueEnabled": false
+  "queueEnabled": false,
+  "jwtEnabled": false
+}
+
+# Create JWT-based rate limit rule
+POST /api/admin/rules
+{
+  "pathPattern": "/api/tenant/**",
+  "allowedRequests": 100,
+  "windowSeconds": 60,
+  "active": true,
+  "jwtEnabled": true,
+  "jwtClaims": "[\"sub\", \"tenant_id\"]",
+  "jwtClaimSeparator": ":"
 }
 
 # Update entire rule

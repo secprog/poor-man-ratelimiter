@@ -20,7 +20,23 @@ CREATE TABLE IF NOT EXISTS rate_limit_rules (
     active BOOLEAN DEFAULT TRUE,
     queue_enabled BOOLEAN DEFAULT FALSE,
     max_queue_size INT DEFAULT 0,
-    delay_per_request_ms INT DEFAULT 100
+    delay_per_request_ms INT DEFAULT 100,
+    -- JWT-based rate limiting fields
+    jwt_enabled BOOLEAN DEFAULT FALSE,
+    jwt_claims TEXT,  -- JSON array of claim names to concatenate (e.g., ["sub", "tenant_id"])
+    jwt_claim_separator VARCHAR(10) DEFAULT ':',  -- Separator for concatenating multiple claims
+    -- Body-based rate limiting fields
+    body_limit_enabled BOOLEAN DEFAULT FALSE,
+    body_field_path VARCHAR(255),  -- JSONPath or simple field name (e.g., "user_id", "api_key", "user.id")
+    body_limit_type VARCHAR(20) DEFAULT 'replace_ip',  -- "replace_ip" or "combine_with_ip"
+    -- Header-based rate limiting fields
+    header_limit_enabled BOOLEAN DEFAULT FALSE,
+    header_name VARCHAR(255),  -- Header name to extract value from (e.g., "X-API-Key", "X-User-Id")
+    header_limit_type VARCHAR(20) DEFAULT 'replace_ip',  -- "replace_ip" or "combine_with_ip"
+    -- Cookie-based rate limiting fields
+    cookie_limit_enabled BOOLEAN DEFAULT FALSE,
+    cookie_name VARCHAR(255),  -- Cookie name to extract value from (e.g., "session_id", "user_token")
+    cookie_limit_type VARCHAR(20) DEFAULT 'replace_ip'  -- "replace_ip" or "combine_with_ip"
 );
 
 CREATE TABLE IF NOT EXISTS rate_limit_state (
