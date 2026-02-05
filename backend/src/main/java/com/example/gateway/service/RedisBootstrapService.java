@@ -62,7 +62,7 @@ public class RedisBootstrapService {
     private Mono<Void> seedDefaultPolicy() {
         RateLimitPolicy defaultPolicy = new RateLimitPolicy();
         defaultPolicy.setRoutePattern("/**");
-        defaultPolicy.setLimitType("IP_BASED");
+        defaultPolicy.setLimitType("GLOBAL");
         defaultPolicy.setReplenishRate(10);
         defaultPolicy.setBurstCapacity(20);
         defaultPolicy.setRequestedTokens(1);

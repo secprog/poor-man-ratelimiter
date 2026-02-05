@@ -238,7 +238,7 @@ void testBodyFieldExtraction() {
 
 ### Rate Limit Not Triggering
 
-1. **Verify rule active**: `SELECT active FROM rate_limit_rules WHERE id = '...'` should return true
+1. **Verify rule active**: `GET /api/admin/rules/active`
 2. **Refresh rule cache**: `POST http://localhost:8080/api/admin/rules/refresh`
 3. **Check identifier**: Log the determined identifier:
    ```java

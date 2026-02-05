@@ -20,7 +20,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-@Component("redisRateLimiter")
+@Component("customRedisRateLimiter")
 @RequiredArgsConstructor
 @Slf4j
 public class RedisRateLimiter implements RateLimiter<RedisRateLimiter.Config> {

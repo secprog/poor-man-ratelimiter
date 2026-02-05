@@ -22,19 +22,19 @@ public class ConfigurationService {
             .expireAfterWrite(Duration.ofMinutes(5))
             .build();
 
-        private static final Map<String, String> DEFAULT_CONFIGS = Map.of(
-            "ip-header-name", "X-Forwarded-For",
-            "trust-x-forwarded-for", "false",
-            "antibot-enabled", "true",
-            "antibot-min-submit-time", "2000",
-            "antibot-honeypot-field", "_hp_email",
-            "session-cookie-name", "JSESSIONID",
-            "antibot-challenge-type", "metarefresh",
-            "antibot-metarefresh-delay", "3",
-                "antibot-preact-difficulty", "1",
-                "analytics-retention-days", "7",
-                "traffic-logs-retention-hours", "24",
-                "traffic-logs-max-entries", "10000"
+        private static final Map<String, String> DEFAULT_CONFIGS = Map.ofEntries(
+            Map.entry("ip-header-name", "X-Forwarded-For"),
+            Map.entry("trust-x-forwarded-for", "false"),
+            Map.entry("antibot-enabled", "true"),
+            Map.entry("antibot-min-submit-time", "2000"),
+            Map.entry("antibot-honeypot-field", "_hp_email"),
+            Map.entry("session-cookie-name", "JSESSIONID"),
+            Map.entry("antibot-challenge-type", "metarefresh"),
+            Map.entry("antibot-metarefresh-delay", "3"),
+            Map.entry("antibot-preact-difficulty", "1"),
+            Map.entry("analytics-retention-days", "7"),
+            Map.entry("traffic-logs-retention-hours", "24"),
+            Map.entry("traffic-logs-max-entries", "10000")
         );
 
     @PostConstruct

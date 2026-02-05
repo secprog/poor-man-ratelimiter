@@ -5,49 +5,17 @@ server:
 spring:
   application:
     name: gateway-service
+  autoconfigure:
+    exclude:
+      - org.springframework.cloud.gateway.config.GatewayRedisAutoConfiguration
   data:
     redis:
       host: ${REDIS_HOST:redis}
       port: ${REDIS_PORT:6379}
-  cloud:
-    gateway:
-      routes:
-        - id: test_server_route
-          uri: ${TEST_SERVER_URL:http://host.docker.internal:9000}
-          predicates:
-            - Path=/test/**
-          filters:
-            - RewritePath=/test/(?<segment>.*), /$\{segment}
-        - id: default_route
-          uri: https://httpbin.org
-          predicates:
-            - Path=/httpbin/**
-          filters:
-            - RewritePath=/httpbin/(?<segment>.*), /$\{segment}
-      default-filters:
-        - name: RequestRateLimiter
-          args:
-            rate-limiter: "#{@redisRateLimiter}"
-            key-resolver: "#{@dynamicKeyResolver}"
 
 logging:
   level:
     org.springframework.cloud.gateway: INFO
     org.springframework.data.redis: INFO
 
-# Rate Limiter Configuration
-rate-limiter:
-  # WARNING: Only set this to true if you control the proxy/load balancer
-  # in front of this gateway AND you trust it to set X-Forwarded-For correctly.
-  # If attackers can reach this gateway directly (bypassing your proxy),
-  # they can spoof their IP address by setting a fake header!
-  trust-x-forwarded-for: false
-  # Header to use for IP resolution (defaults to X-Forwarded-For if trust is enabled)
-  ip-header-name: X-Forwarded-For
-
-# Anti-Bot Protection Configuration
-antibot:
-  enabled: true
-  min-submit-time-ms: 2000  # Minimum time between form load and submit (prevent bots)
-  honeypot-field: _hp_email  # Hidden field name that bots will fill
 
