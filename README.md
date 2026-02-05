@@ -42,6 +42,14 @@ Production-ready API gateway with advanced rate limiting, anti-bot defenses, rea
 - **Analytics**: Charts and graphs showing traffic patterns over time
 - **Settings**: System configuration with immediate apply (no restart required)
 
+## 📸 Screenshots
+
+![Dashboard overview](demo/dash1.PNG)
+![Dashboard traffic details](demo/dash2.PNG)
+![Dashboard live updates](demo/dash3.PNG)
+![Policy management](demo/dash4.PNG)
+![System settings](demo/dash5.PNG)
+
 ## 🛠 Stack
 
 - **Backend**: Spring Boot 3, Spring Cloud Gateway (WebFlux), R2DBC + Postgres, Caffeine caching
