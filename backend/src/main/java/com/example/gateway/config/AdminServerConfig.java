@@ -59,9 +59,13 @@ public class AdminServerConfig {
      */
     @Bean(destroyMethod = "disposeNow")
     public DisposableServer adminHttpServer(WebHandler webHandler) {
-        log.info("Starting admin server on port 9090 (/api/** routes)");
+        log.info("Starting admin server on port 9090 (/api/** routes with WebSocket support)");
         
-        HttpHandler httpHandler = WebHttpHandlerBuilder.webHandler(webHandler).build();
+        // Build HttpHandler with full routing and WebSocket support
+        HttpHandler httpHandler = WebHttpHandlerBuilder
+            .webHandler(webHandler)
+            .build();
+        
         ReactorHttpHandlerAdapter adapter = new ReactorHttpHandlerAdapter(httpHandler);
         
         return HttpServer.create()
