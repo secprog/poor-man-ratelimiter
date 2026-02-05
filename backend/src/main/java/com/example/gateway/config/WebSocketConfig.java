@@ -22,7 +22,7 @@ public class WebSocketConfig {
     @Bean
     public HandlerMapping webSocketHandlerMapping() {
         Map<String, WebSocketHandler> map = new HashMap<>();
-        map.put("/api/ws/analytics", analyticsWebSocketHandler);
+        map.put("/poormansRateLimit/api/admin/ws/analytics", analyticsWebSocketHandler);
         
         SimpleUrlHandlerMapping handlerMapping = new SimpleUrlHandlerMapping();
         handlerMapping.setUrlMap(map);

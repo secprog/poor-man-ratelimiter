@@ -7,6 +7,7 @@ import com.example.gateway.model.TrafficLog;
 import com.example.gateway.store.RateLimitRuleStore;
 import com.example.gateway.store.RequestCounterStore;
 import com.example.gateway.store.TrafficLogStore;
+import com.example.gateway.websocket.AnalyticsBroadcaster;
 import com.example.gateway.util.BodyFieldExtractor;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,6 +37,7 @@ public class RateLimiterService {
     private final RateLimitRuleStore ruleStore;
     private final RequestCounterStore counterStore;
     private final TrafficLogStore trafficLogStore;
+    private final AnalyticsBroadcaster analyticsBroadcaster;
     private final JwtService jwtService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -469,6 +471,7 @@ public class RateLimiterService {
     private Mono<Void> logTraffic(String path, String ip, String method, String host, int status, boolean allowed, boolean queued) {
         TrafficLog logEntry = new TrafficLog(UUID.randomUUID(), LocalDateTime.now(), method, path, host, ip, status, allowed, queued);
         return trafficLogStore.append(logEntry)
+                .doOnSuccess(ignored -> analyticsBroadcaster.broadcastMessage("traffic", logEntry))
                 .onErrorResume(e -> {
                     log.warn("Failed to log traffic: {}", e.getMessage());
                     return Mono.empty();

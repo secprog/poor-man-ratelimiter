@@ -1,6 +1,7 @@
 package com.example.gateway.websocket;
 
 import com.example.gateway.dto.AnalyticsUpdate;
+import com.example.gateway.dto.AnalyticsWebSocketMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,14 +32,18 @@ public class AnalyticsBroadcaster {
     }
     
     public void broadcast(AnalyticsUpdate update) {
+        broadcastMessage("summary", update);
+    }
+
+    public void broadcastMessage(String type, Object payload) {
         String message;
         try {
-            message = objectMapper.writeValueAsString(update);
+            message = objectMapper.writeValueAsString(new AnalyticsWebSocketMessage(type, payload));
         } catch (Exception e) {
-            log.error("Failed to serialize analytics update", e);
+            log.error("Failed to serialize analytics WebSocket message", e);
             return;
         }
-        
+
         broadcast(message);
     }
     

@@ -1,8 +1,7 @@
-version: '3.8'
 services:
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-dev-only-change-me}"]
     ports:
       - "127.0.0.1:6379:6379"  # SECURITY: Localhost only - Redis must not be publicly accessible
     volumes:
@@ -39,6 +38,7 @@ services:
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-dev-only-change-me}
       TEST_SERVER_URL: http://test-server:9000
       HTTPBIN_URL: http://httpbin:80
     depends_on:

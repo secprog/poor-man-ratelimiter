@@ -15,7 +15,6 @@ import {
     Legend,
     ResponsiveContainer
 } from 'recharts';
-import api from '../api';
 import analyticsWs from '../utils/websocket';
 
 const COLORS = {
@@ -35,67 +34,39 @@ export default function Analytics() {
     });
     const [timeRange, setTimeRange] = useState(1); // hours
     const [loading, setLoading] = useState(true);
-    const isRefreshingRef = useRef(false);
+    const fullSeriesRef = useRef([]);
     const lastSummaryRef = useRef(null);
 
     useEffect(() => {
-        fetchTimeSeriesData();
-
         // Subscribe to WebSocket for real-time updates
-        const unsubscribe = analyticsWs.subscribe((update) => {
-            const summary = {
-                allowed: update.requestsAllowed || 0,
-                blocked: update.requestsBlocked || 0
-            };
-
-            setStats(prev => ({
-                ...prev,
-                activePolicies: update.activePolicies || prev.activePolicies,
-                isConnected: true
-            }));
-
-            if (lastSummaryRef.current) {
-                const deltaAllowed = Math.max(summary.allowed - lastSummaryRef.current.allowed, 0);
-                const deltaBlocked = Math.max(summary.blocked - lastSummaryRef.current.blocked, 0);
-
-                if (deltaAllowed > 0 || deltaBlocked > 0) {
-                    const bucketTime = update.timestamp ? new Date(update.timestamp) : new Date();
-                    bucketTime.setSeconds(0, 0);
-                    const bucketTimestamp = bucketTime.getTime();
-
-                    setTimeSeriesData(prev => {
-                        const updated = [...prev];
-                        const lastPoint = updated[updated.length - 1];
-                        if (lastPoint && lastPoint.timestamp === bucketTimestamp) {
-                            lastPoint.allowed += deltaAllowed;
-                            lastPoint.blocked += deltaBlocked;
-                            lastPoint.total = lastPoint.allowed + lastPoint.blocked;
-                        } else {
-                            updated.push({
-                                time: bucketTime.toLocaleTimeString(),
-                                timestamp: bucketTimestamp,
-                                allowed: deltaAllowed,
-                                blocked: deltaBlocked,
-                                total: deltaAllowed + deltaBlocked
-                            });
-                        }
-
-                        const totals = computeTotals(updated);
-                        setStats(prevStats => ({
-                            ...prevStats,
-                            requestsAllowed: totals.allowed,
-                            requestsBlocked: totals.blocked
-                        }));
-
-                        return updated.slice(-200);
-                    });
-                }
+        const unsubscribe = analyticsWs.subscribe((message) => {
+            if (!message || !message.type) {
+                return;
             }
 
-            lastSummaryRef.current = summary;
+            if (message.type === 'snapshot') {
+                handleSnapshot(message.payload);
+                return;
+            }
+
+            if (message.type === 'summary') {
+                applySummaryUpdate(message.payload);
+            }
         });
 
         return () => unsubscribe();
+    }, []);
+
+    useEffect(() => {
+        const filtered = filterSeries(fullSeriesRef.current, timeRange);
+        setTimeSeriesData(filtered);
+
+        const totals = computeTotals(filtered);
+        setStats(prev => ({
+            ...prev,
+            requestsAllowed: totals.allowed,
+            requestsBlocked: totals.blocked
+        }));
     }, [timeRange]);
 
     const computeTotals = (series) => series.reduce(
@@ -106,37 +77,109 @@ export default function Analytics() {
         { allowed: 0, blocked: 0 }
     );
 
-    const fetchTimeSeriesData = async () => {
-        if (isRefreshingRef.current) return;
-        isRefreshingRef.current = true;
-        try {
-            setLoading(true);
-            const response = await api.get(`/analytics/timeseries?hours=${timeRange}`);
-            
-            const formattedData = response.data.map(point => ({
-                time: new Date(point.timestamp).toLocaleTimeString(),
-                timestamp: new Date(point.timestamp).getTime(),
-                allowed: point.allowed,
-                blocked: point.blocked,
-                total: point.allowed + point.blocked
-            }));
+    const formatSeries = (series) => (series || []).map(point => ({
+        time: new Date(point.timestamp).toLocaleTimeString(),
+        timestamp: new Date(point.timestamp).getTime(),
+        allowed: point.allowed || 0,
+        blocked: point.blocked || 0,
+        total: (point.allowed || 0) + (point.blocked || 0)
+    }));
 
-            setTimeSeriesData(formattedData);
-
-            const totals = computeTotals(formattedData);
-            setStats(prev => ({
-                ...prev,
-                requestsAllowed: totals.allowed,
-                requestsBlocked: totals.blocked
-            }));
-            
-            setLoading(false);
-        } catch (err) {
-            console.error('Failed to fetch time series data', err);
-            setLoading(false);
-        } finally {
-            isRefreshingRef.current = false;
+    const filterSeries = (series, hours) => {
+        if (!Array.isArray(series) || series.length === 0) {
+            return [];
         }
+        const cutoff = Date.now() - hours * 60 * 60 * 1000;
+        return series.filter(point => point.timestamp >= cutoff);
+    };
+
+    const handleSnapshot = (snapshot) => {
+        if (!snapshot) {
+            return;
+        }
+
+        const summary = snapshot.summary || {};
+        const formattedSeries = formatSeries(snapshot.timeseries || []);
+
+        fullSeriesRef.current = formattedSeries;
+
+        const filtered = filterSeries(formattedSeries, timeRange);
+        setTimeSeriesData(filtered);
+
+        const totals = computeTotals(filtered);
+        setStats(prev => ({
+            ...prev,
+            requestsAllowed: totals.allowed,
+            requestsBlocked: totals.blocked,
+            activePolicies: summary.activePolicies || prev.activePolicies,
+            isConnected: true
+        }));
+
+        lastSummaryRef.current = {
+            allowed: summary.requestsAllowed || 0,
+            blocked: summary.requestsBlocked || 0
+        };
+
+        setLoading(false);
+    };
+
+    const applySummaryUpdate = (update) => {
+        if (!update) {
+            return;
+        }
+
+        const summary = {
+            allowed: update.requestsAllowed || 0,
+            blocked: update.requestsBlocked || 0
+        };
+
+        setStats(prev => ({
+            ...prev,
+            activePolicies: update.activePolicies || prev.activePolicies,
+            isConnected: true
+        }));
+
+        if (lastSummaryRef.current) {
+            const deltaAllowed = Math.max(summary.allowed - lastSummaryRef.current.allowed, 0);
+            const deltaBlocked = Math.max(summary.blocked - lastSummaryRef.current.blocked, 0);
+
+            if (deltaAllowed > 0 || deltaBlocked > 0) {
+                const bucketTime = update.timestamp ? new Date(update.timestamp) : new Date();
+                bucketTime.setSeconds(0, 0);
+                const bucketTimestamp = bucketTime.getTime();
+
+                const updated = [...fullSeriesRef.current];
+                const lastPoint = updated[updated.length - 1];
+
+                if (lastPoint && lastPoint.timestamp === bucketTimestamp) {
+                    lastPoint.allowed += deltaAllowed;
+                    lastPoint.blocked += deltaBlocked;
+                    lastPoint.total = lastPoint.allowed + lastPoint.blocked;
+                } else {
+                    updated.push({
+                        time: bucketTime.toLocaleTimeString(),
+                        timestamp: bucketTimestamp,
+                        allowed: deltaAllowed,
+                        blocked: deltaBlocked,
+                        total: deltaAllowed + deltaBlocked
+                    });
+                }
+
+                fullSeriesRef.current = updated.slice(-2000);
+
+                const filtered = filterSeries(fullSeriesRef.current, timeRange);
+                setTimeSeriesData(filtered);
+
+                const totals = computeTotals(filtered);
+                setStats(prevStats => ({
+                    ...prevStats,
+                    requestsAllowed: totals.allowed,
+                    requestsBlocked: totals.blocked
+                }));
+            }
+        }
+
+        lastSummaryRef.current = summary;
     };
 
     const pieData = [
@@ -180,10 +223,7 @@ export default function Analytics() {
                 {[1, 6, 24].map(hours => (
                     <button
                         key={hours}
-                        onClick={() => {
-                            setTimeRange(hours);
-                            fetchTimeSeriesData();
-                        }}
+                        onClick={() => setTimeRange(hours)}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                             timeRange === hours
                                 ? 'bg-indigo-600 text-white'

@@ -2,272 +2,127 @@
 
 ## Executive Summary
 
-The project has good port-based isolation for admin APIs, but several security issues require immediate attention:
+The project uses port-based isolation for admin APIs and routes analytics exclusively over a protected admin WebSocket. Major issues are fixed; a few hardening items remain:
 
-1. **CRITICAL**: Redis exposed on 0.0.0.0:6379 with no authentication
-2. **HIGH**: CORS headers allow any origin to access admin endpoints
-3. **MEDIUM**: Old comments reference removed security controls
+1. FIXED: Admin WebSocket moved under /poormansRateLimit/api/admin/ws/analytics (port 9090)
+2. FIXED: Admin CORS wildcard removed
+3. FIXED: Redis/test/httpbin bound to localhost
+4. FIXED: Redis now requires a password (REDIS_PASSWORD)
+5. REMAINING: TLS and production config hardening
 
 ---
 
 ## Critical Security Issues
 
-### 1. ⚠️ CRITICAL: Redis Exposed to Public Network
+### 1. FIXED: Redis Authentication Added
 
-**Location**: `docker-compose.yml`
+Location: docker-compose.yml
 
+Issue: Redis is localhost-only and now requires a password.
+
+Applied fix:
 ```yaml
 redis:
-  ports:
-    - "6379:6379"  # ❌ Binds to 0.0.0.0:6379 (publicly accessible)
+  command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-dev-only-change-me}"]
 ```
 
-**Issue**: Redis is accessible from any network with no authentication.
-
-**Impact**: 
-- Anyone can read all Redis data (rules, configs, counters, traffic logs, JWT tokens)
-- Anyone can write/delete data (modify rules, clear counters, corrupt cache)
-- Potential for code execution via Lua scripts or module loading
-
-**Fix**:
-```yaml
-redis:
-  ports:
-    - "127.0.0.1:6379:6379"  # ✅ Only localhost
-  command: ["redis-server", "--appendonly", "yes", "--requirepass", "STRONG_PASSWORD"]
-```
-
-Also update backend `application.yml`:
+Backend application.yml reads the same env var:
 ```yaml
 spring:
   data:
     redis:
-      password: ${REDIS_PASSWORD:STRONG_PASSWORD}
+      password: ${REDIS_PASSWORD:dev-only-change-me}
       host: redis
       port: 6379
 ```
 
----
-
-### 2. ⚠️ HIGH: CORS Headers Allow Any Origin
-
-**Location**: All admin controllers
-- `AnalyticsController.java`
-- `RateLimitRuleController.java`
-- `SystemConfigController.java`
-
-```java
-@RestController
-@RequestMapping("/poormansRateLimit/api/admin/**")
-@CrossOrigin(origins = "*")  // ❌ Allows all origins
-public class AnalyticsController { ... }
-```
-
-**Issue**: Even though port 9090 is localhost-only in Docker, CORS headers are unrestricted.
-
-**Bypass Scenarios**:
-1. If someone runs locally and modifies docker-compose: `"0.0.0.0:9090:9090"` → now port 9090 is public + CORS allows it
-2. Kubernetes deployment: Port 9090 might not be restricted at network level → CORS allows any origin
-3. Network misconfiguration: Port accidentally exposed → CORS allows cross-origin requests
-
-**Fix**: Remove `@CrossOrigin` from admin controllers
-
-```java
-// ✅ REMOVE THIS:
-// @CrossOrigin(origins = "*")
-
-@RestController
-@RequestMapping("/poormansRateLimit/api/admin/**")
-public class AnalyticsController {
-    // Now browser CORS policies will protect it
-    // Only localhost can make requests
-}
-```
-
-**Note**: Public API controllers (like `TokenController`) can keep `@CrossOrigin(origins = "*")` for form protection tokens since they're designed for public use.
+Recommendation: Use a strong REDIS_PASSWORD in production (never the dev default).
 
 ---
 
 ## High-Priority Issues
 
-### 3. Misleading Code Comments
+### 2. FIXED: Admin CORS Wildcard Removed
 
-**Location**: `docker-compose.yml`, `AdminServerConfig.java`
+Location: admin controllers
+- RateLimitRuleController.java
+- SystemConfigController.java
 
+Status: Admin controllers no longer set @CrossOrigin.
+
+---
+
+### 3. FIXED: Misleading Code Comments
+
+Location: docker-compose.yml and AdminServerConfig.java
+
+Status: Comments now describe port-based isolation without IP-based filtering references.
+
+---
+
+### 4. FIXED: Test Server Localhost-Only
+
+Location: docker-compose.yml
+
+Status:
 ```yaml
-# Old comment references removed AdminAccessUtil
-- "127.0.0.1:9090:9090"    # Admin APIs on 9090 (localhost only)
-                             # - Contains all /poormansRateLimit/api/admin/** endpoints
-                             # - All requests validated by AdminAccessUtil.validateLocalhostOnly()  ❌ REMOVED
-```
-
-**Fix**: Update comments to reflect current implementation
-
-```yaml
-- "127.0.0.1:9090:9090"    # Admin APIs on 9090 (localhost only)
-                             # - OS-level port binding prevents external access
-                             # - Only accessible from localhost (127.0.0.1)
+test-server:
+  ports:
+    - "127.0.0.1:9000:9000"
 ```
 
 ---
 
-### 4. Test Server Exposed
+### 5. FIXED: httpbin Localhost-Only
 
-**Location**: `docker-compose.yml`
+Location: docker-compose.yml
 
-```yaml
-test-server:
-  ports:
-    - "9000:9000"  # Exposes test server publicly
-```
-
-**Issue**: Test server should not be running in production.
-
-**Fix**: In production Dockerfile, remove test-server service or make it localhost-only:
-```yaml
-test-server:
-  ports:
-    - "127.0.0.1:9000:9000"  # Only for local testing
-```
-
----
-
-### 5. Default httpbin Exposed
-
-**Location**: `docker-compose.yml`
-
+Status:
 ```yaml
 httpbin:
   ports:
-    - "8081:80"  # Exposes httpbin publicly
-```
-
-**Issue**: httpbin is a testing tool, not for production.
-
-**Fix**: Make it internal-only
-```yaml
-httpbin:
-  ports:
-    - "127.0.0.1:8081:80"  # Only for local testing
+    - "127.0.0.1:8081:80"
 ```
 
 ---
 
 ## Medium-Priority Issues
 
-### 6. Admin Port Binding Clarity
+### 6. FIXED: Admin Port Binding Clarity
 
-**Current Issue**: While port 9090 is correctly bound to `127.0.0.1` in docker-compose, this is a configuration detail rather than code documentation.
-
-**Recommendation**: Add environment variable validation:
-
-Create `AdminServerConfig.java` check:
-```java
-@Bean
-public ApplicationRunner validateAdminPortBinding(Environment env) {
-    return args -> {
-        String port = env.getProperty("server.port.admin", "9090");
-        log.info("✓ Admin server configured on port {}", port);
-        log.info("✓ Only accessible on localhost (127.0.0.1:{})", port);
-    };
-}
-```
+Status: Admin port binding is logged at startup via ApplicationRunner.
 
 ---
 
-### 7. WebSocket Analytics Data Exposure
+### 7. FIXED: Analytics WebSocket Protected
 
-**Location**: `/api/ws/analytics` (port 8080, public)
+Location: /poormansRateLimit/api/admin/ws/analytics (port 9090, localhost-only)
 
-**Current Implementation**: Broadcasts `{requestsAllowed, requestsBlocked, activePolicies}` to all WebSocket clients
+Current implementation: WebSocket messages are only available on the admin port and include:
+- summary updates (allowed/blocked/activePolicies)
+- snapshot (summary + 24h timeseries + latest traffic)
+- traffic events (per request)
 
-**Issue**: This is real-time system state information. Acceptable for public dashboard, but ensure no sensitive data leaks:
-- ✅ Request counts: Non-sensitive
-- ✅ Active policies count: Non-sensitive
-- ❌ Rule details (individual IPs, JWT claims): Would be sensitive if broadcast
-- ❌ Traffic logs with user IDs: Would be sensitive if broadcast
-
-**Current Status**: ✓ Appears safe - only aggregated statistics
-
-**Recommendation**: Document what data is broadcast and audit if it changes
+Recommendation: Keep payloads limited to aggregate metrics unless explicitly needed.
 
 ---
 
-### 8. No Rate Limiting on Public Endpoints
+### 8. No TLS/HTTPS (Dev Only)
 
-**Location**: Public routes `/api/**` on port 8080
-
-**Current Implementation**: Rate limiting is applied, but verify:
-- ✅ `/api/tokens/form` - protected by anti-bot
-- ✅ `/api/tokens/challenge` - protected by token validation  
-- ✅ WebSocket analytics - no authentication required (but fine since it's read-only aggregated data)
-
-**Recommendation**: Add rate limiting to token endpoints to prevent abuse
-
----
-
-### 9. JWT Token Handling
-
-**Location**: `JwtService.java`
-
-**Current**: Extracts JWT claims without signature verification (assumes upstream validation)
-
-**Assessment**: ✓ Safe if upstream validates signatures. Verify that:
-- ✅ All JWT tokens come from trusted source
-- ✅ Signature validation happens before reaching gateway
-- ✅ No ability to inject custom JWT tokens from public API
-
----
-
-## Encryption & Network Security
-
-### 10. No TLS/HTTPS
-
-**Issue**: All communication is over HTTP
-
-**Status**: Development mode, acceptable for dev environment
-
-**Production Fix**: 
-- Use reverse proxy (Nginx/HAProxy) with TLS
-- Implement Spring Security SSL configuration
-- Use Docker network isolation instead of localhost binding
-
----
-
-## Dependency Security
-
-### 11. Dependency Audit
-
-**Status**: ✓ Dependencies appear current
-
-- Spring Boot 3.4.1 ✓ (Latest stable)
-- Spring Cloud 2024.0.0 ✓ (Latest stable)
-- JJWT 0.12.3 ✓ (Current)
-- Lombok 1.18.30 ✓ (Current)
-- Caffeine ✓ (Current, managed by Spring)
-
-**Recommendation**: Run periodic dependency checks
-```bash
-mvn versions:display-dependency-updates
-```
+Status: Acceptable for development. Add TLS for production via reverse proxy or Spring SSL config.
 
 ---
 
 ## Access Control Model
 
-### 12. Port-Based Isolation Effectiveness
-
-**Current Model**:
-- Port 8080 (public): `ApiPortFilter` returns 404 for admin routes
+Current model:
+- Port 8080 (public): ApiPortFilter returns 404 for admin routes
 - Port 9090 (private): OS-level TCP binding to 127.0.0.1
 
-**Effectiveness Assessment**:
-- ✅ Not bypassable by application code
-- ✅ Not bypassable by header manipulation
-- ⚠️ Can be misconfigured in docker-compose
-- ⚠️ CORS headers provide false sense of security if port is exposed
-
-**Grade**: B+ (Strong, but reliant on configuration)
+Assessment:
+- Not bypassable by application code
+- Not bypassable by header manipulation
+- Reliant on docker-compose configuration
 
 ---
 
@@ -275,85 +130,57 @@ mvn versions:display-dependency-updates
 
 | Priority | Issue | Fix | Impact |
 |----------|-------|-----|--------|
-| 🔴 CRITICAL | Redis public + no auth | Bind to 127.0.0.1 + requirepass | Prevents data breach |
-| 🔴 CRITICAL | CORS allows all origins | Remove @CrossOrigin from admin | Enables localhost enforcement |
-| 🟡 HIGH | Test server public | Make localhost-only | Dev/test only |
-| 🟡 HIGH | httpbin server public | Make localhost-only | Dev/test only |
-| 🟡 HIGH | Misleading comments | Update to reflect actual implementation | Documentation |
-| 🟢 MEDIUM | Docker config risk | Add validation checks | Better defensive coding |
-| 🟢 MEDIUM | No TLS in dev | Acceptable for dev, add for production | Production readiness |
+| MEDIUM | TLS in production | Add reverse proxy TLS | Production readiness |
+| MEDIUM | Config hardening | Validate admin bind/port in infra | Reduce misconfig risk |
 
 ---
 
 ## Recommendations
 
-### Immediate (Do Now)
-1. Fix Redis exposure: `127.0.0.1:6379` + password
-2. Remove CORS from admin controllers
-3. Update misleading comments
-4. Make test-server and httpbin localhost-only
+Immediate (Do Now):
+1. Replace dev-only-change-me with a real REDIS_PASSWORD in production
 
-### Short-term (Before Production)
+Short-term (Before Production):
 1. Add TLS/HTTPS support
-2. Implement proper authentication for Redis
-3. Add rate limiting to token endpoints
-4. Document WebSocket data exposure
-5. Add environment variable validation
-
-### Long-term
-1. Implement OAuth/OIDC for admin APIs instead of port-based isolation
-2. Add audit logging for all admin API calls
-3. Implement secrets management (HashiCorp Vault, etc.)
-4. Add WAF (Web Application Firewall) rules
-5. Regular security audits and dependency scanning
+2. Review WebSocket payloads if new fields are added
+3. Ensure admin port is never exposed externally in deployment manifests
 
 ---
 
 ## Bypass Scenario Testing
 
-### Test 1: Can I reach admin routes on port 8080?
+Test 1: Can I reach admin WebSocket on port 8080?
 ```bash
-curl http://localhost:8080/poormansRateLimit/api/admin/analytics/summary
-# Expected: 404 NOT_FOUND ✓
+curl http://localhost:8080/poormansRateLimit/api/admin/ws/analytics
+# Expected: 404 NOT_FOUND
 ```
 
-### Test 2: Can I reach admin routes on port 9090 from non-localhost?
+Test 2: Can I reach admin WebSocket on port 9090 from non-localhost?
 ```bash
 # From another host:
-curl http://192.168.1.100:9090/poormansRateLimit/api/admin/analytics/summary
-# Expected: Connection refused/timeout (NOT a response) ✓
+curl http://192.168.1.100:9090/poormansRateLimit/api/admin/ws/analytics
+# Expected: Connection refused/timeout (no response)
 ```
 
-### Test 3: Can I access Redis publicly?
+Test 3: Can I access Redis without auth?
 ```bash
-redis-cli -h 192.168.1.100 -p 6379 ping
-# Current: PONG ❌ (Should error)
-# After fix: error (NOAUTH Authentication required) ✓
-```
-
-### Test 4: Can CORS bypass localhost check?
-```javascript
-// Browser on attacker.com makes request to http://localhost:9090/api/admin
-// Current: Request succeeds (but can't happen from external network)
-// If port 9090 exposed + CORS removed: Browser blocks cross-origin ✓
+redis-cli -h 127.0.0.1 -p 6379 ping
+# Expected: NOAUTH Authentication required
 ```
 
 ---
 
 ## Conclusion
 
-**Current Security Posture**: B-
+Current Security Posture: B+
 
-**Strengths**:
-- ✅ Port-based isolation is solid strategy
-- ✅ ApiPortFilter correctly blocks admin routes on gateway
-- ✅ Dependencies are current
-- ✅ No hardcoded credentials in code
+Strengths:
+- Port-based isolation is solid
+- Admin WebSocket is protected
+- Redis/test/httpbin are localhost-only
 
-**Weaknesses**:
-- ❌ Redis completely unprotected
-- ❌ CORS headers undermine port-based isolation
-- ❌ Test services exposed to network
-- ❌ Reliant on docker-compose configuration for security
+Weaknesses:
+- Reliant on docker-compose configuration for security
+- TLS not configured (dev only)
 
-**Action Items**: Fix the 4 critical issues (Redis, CORS, test servers) before considering this production-ready.
+Action Items: Set a production REDIS_PASSWORD and add TLS before production.

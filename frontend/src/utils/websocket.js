@@ -5,8 +5,8 @@
 // Avoid referencing window/WebSocket during SSR or build-time
 const isBrowser = typeof window !== 'undefined';
 const defaultUrl = isBrowser
-  ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws/analytics`
-  : 'ws://localhost:8080/api/ws/analytics';
+  ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/poormansRateLimit/api/admin/ws/analytics`
+  : 'ws://localhost:9090/poormansRateLimit/api/admin/ws/analytics';
 
 class AnalyticsWebSocket {
   constructor(url = defaultUrl) {

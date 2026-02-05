@@ -85,16 +85,20 @@ public class AnalyticsService {
     // Broadcast updates every 2 seconds
     @Scheduled(fixedRate = 2000)
     public void broadcastUpdates() {
-        Mono.zip(getSummary(), ruleStore.findByActiveTrue().count())
-                .map(tuple -> new AnalyticsUpdate(
-                        tuple.getT1().allowed(),
-                        tuple.getT1().blocked(),
-                        tuple.getT2(),
-                        System.currentTimeMillis()))
-                .doOnNext(broadcaster::broadcast)
+        getCurrentUpdate()
+            .doOnNext(update -> broadcaster.broadcastMessage("summary", update))
                 .doOnError(error -> log.error("Failed to broadcast analytics updates", error))
                 .subscribe();
     }
+
+        public Mono<AnalyticsUpdate> getCurrentUpdate() {
+        return Mono.zip(getSummary(), ruleStore.findByActiveTrue().count())
+            .map(tuple -> new AnalyticsUpdate(
+                tuple.getT1().allowed(),
+                tuple.getT1().blocked(),
+                tuple.getT2(),
+                System.currentTimeMillis()));
+        }
 
     public Mono<StatsSummary> getSummary() {
         // Last 24 hours to match the time series charts

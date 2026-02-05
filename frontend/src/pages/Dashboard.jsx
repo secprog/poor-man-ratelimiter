@@ -1,12 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Activity, ShieldCheck, ShieldX, Settings } from 'lucide-react';
-import api from '../api';
-import adminApi from '../admin-api';
+import { Activity, Clock, ShieldCheck, ShieldX } from 'lucide-react';
 import analyticsWs from '../utils/websocket';
 
 export default function Dashboard() {
     const [rollingWindowMinutes, setRollingWindowMinutes] = useState(5);
-    const isRefreshingRef = useRef(false);
+    const rollingWindowRef = useRef(rollingWindowMinutes);
     const lastSummaryRef = useRef(null);
     const windowBucketsRef = useRef([]);
     const maxBucketMinutes = 60;
@@ -14,98 +12,53 @@ export default function Dashboard() {
         totalRules: 0,
         requestsAllowed: 0,
         requestsBlocked: 0,
+        requestsQueued: 0,
         loading: true,
         error: null,
         isConnected: false
     });
-    const [rules, setRules] = useState([]);
     const [trafficLogs, setTrafficLogs] = useState([]);
 
     useEffect(() => {
-        // Initial load from REST API
-        fetchInitialStats();
-        
         // Subscribe to WebSocket updates
-        const unsubscribe = analyticsWs.subscribe((update) => {
-            const summary = {
-                allowed: update.requestsAllowed || 0,
-                blocked: update.requestsBlocked || 0
-            };
-
-            setStats(prev => ({
-                ...prev,
-                isConnected: true,
-                totalRules: update.activePolicies || prev.totalRules
-            }));
-
-            if (lastSummaryRef.current) {
-                const deltaAllowed = Math.max(summary.allowed - lastSummaryRef.current.allowed, 0);
-                const deltaBlocked = Math.max(summary.blocked - lastSummaryRef.current.blocked, 0);
-
-                if (deltaAllowed > 0 || deltaBlocked > 0) {
-                    const bucketTime = update.timestamp ? new Date(update.timestamp) : new Date();
-                    bucketTime.setSeconds(0, 0);
-                    const bucketTimestamp = bucketTime.getTime();
-
-                    const buckets = [...windowBucketsRef.current];
-                    const lastBucket = buckets[buckets.length - 1];
-
-                    if (lastBucket && lastBucket.timestamp === bucketTimestamp) {
-                        buckets[buckets.length - 1] = {
-                            ...lastBucket,
-                            allowed: lastBucket.allowed + deltaAllowed,
-                            blocked: lastBucket.blocked + deltaBlocked
-                        };
-                    } else {
-                        buckets.push({
-                            timestamp: bucketTimestamp,
-                            allowed: deltaAllowed,
-                            blocked: deltaBlocked
-                        });
-                    }
-
-                    const cutoff = Date.now() - maxBucketMinutes * 60 * 1000;
-                    windowBucketsRef.current = buckets.filter(
-                        bucket => bucket.timestamp >= cutoff
-                    );
-
-                    const totals = computeWindowTotals(
-                        windowBucketsRef.current,
-                        rollingWindowMinutes * 60 * 1000
-                    );
-
-                    setStats(prev => ({
-                        ...prev,
-                        requestsAllowed: totals.allowed,
-                        requestsBlocked: totals.blocked
-                    }));
-                }
+        const unsubscribe = analyticsWs.subscribe((message) => {
+            if (!message || !message.type) {
+                return;
             }
 
-            lastSummaryRef.current = summary;
+            if (message.type === 'snapshot') {
+                handleSnapshot(message.payload);
+                return;
+            }
+
+            if (message.type === 'summary') {
+                applySummaryUpdate(message.payload);
+                return;
+            }
+
+            if (message.type === 'traffic') {
+                handleTrafficUpdate(message.payload);
+            }
         });
         
         return () => unsubscribe();
     }, []);
 
     useEffect(() => {
-        fetchInitialStats();
-    }, [rollingWindowMinutes]);
+        rollingWindowRef.current = rollingWindowMinutes;
 
-    const fetchTrafficLogs = async () => {
-        try {
-            const res = await adminApi.get('/admin/analytics/traffic?limit=100');
-            setTrafficLogs(res.data || []);
-        } catch (err) {
-            console.error("Failed to fetch traffic logs", err);
-        }
-    };
+        const totals = computeWindowTotals(
+            windowBucketsRef.current,
+            rollingWindowMinutes * 60 * 1000
+        );
 
-    useEffect(() => {
-        fetchTrafficLogs();
-        const interval = setInterval(fetchTrafficLogs, 2000); // Update every 2 seconds
-        return () => clearInterval(interval);
-    }, []);
+        setStats(prev => ({
+            ...prev,
+            requestsAllowed: totals.allowed,
+            requestsBlocked: totals.blocked,
+            requestsQueued: computeQueuedCount(trafficLogs, rollingWindowMinutes)
+        }));
+    }, [rollingWindowMinutes, trafficLogs]);
 
     const computeWindowTotals = (points, windowMs) => {
         if (windowMs === 0) {
@@ -137,45 +90,147 @@ export default function Dashboard() {
         );
     };
 
-    const fetchInitialStats = async () => {
-        if (isRefreshingRef.current) return;
-        isRefreshingRef.current = true;
-        try {
-            const [rulesRes, analyticsRes] = await Promise.all([
-                api.get('/admin/rules/active'),
-                api.get('/analytics/timeseries?hours=1')
-            ]);
-
-            windowBucketsRef.current = (analyticsRes.data || []).map(point => ({
-                timestamp: new Date(point.timestamp).getTime(),
-                allowed: point.allowed || 0,
-                blocked: point.blocked || 0
-            }));
-
-            const totals = computeWindowTotals(
-                windowBucketsRef.current,
-                rollingWindowMinutes * 60 * 1000
-            );
-
-            setRules(rulesRes.data || []);
-            setStats(prev => ({
-                ...prev,
-                totalRules: rulesRes.data.length,
-                requestsAllowed: totals.allowed,
-                requestsBlocked: totals.blocked,
-                loading: false,
-                error: null
-            }));
-        } catch (err) {
-            console.error("Failed to fetch stats", err);
-            setStats(prev => ({
-                ...prev,
-                loading: false,
-                error: 'Failed to fetch statistics'
-            }));
-        } finally {
-            isRefreshingRef.current = false;
+    const computeQueuedCount = (logs, windowMinutes) => {
+        if (!Array.isArray(logs) || logs.length === 0) {
+            return 0;
         }
+
+        if (windowMinutes === 0) {
+            const currentMinute = new Date();
+            currentMinute.setSeconds(0, 0);
+            const start = currentMinute.getTime();
+            const end = start + 60 * 1000;
+
+            return logs.filter(log => {
+                if (!log?.queued || !log?.timestamp) {
+                    return false;
+                }
+                const ts = new Date(log.timestamp).getTime();
+                return !Number.isNaN(ts) && ts >= start && ts < end;
+            }).length;
+        }
+
+        const cutoff = Date.now() - windowMinutes * 60 * 1000;
+        return logs.filter(log => {
+            if (!log?.queued || !log?.timestamp) {
+                return false;
+            }
+            const ts = new Date(log.timestamp).getTime();
+            return !Number.isNaN(ts) && ts >= cutoff;
+        }).length;
+    };
+
+    const applySummaryUpdate = (update) => {
+        if (!update) {
+            return;
+        }
+
+        const summary = {
+            allowed: update.requestsAllowed || 0,
+            blocked: update.requestsBlocked || 0
+        };
+
+        setStats(prev => ({
+            ...prev,
+            isConnected: true,
+            totalRules: update.activePolicies || prev.totalRules
+        }));
+
+        if (lastSummaryRef.current) {
+            const deltaAllowed = Math.max(summary.allowed - lastSummaryRef.current.allowed, 0);
+            const deltaBlocked = Math.max(summary.blocked - lastSummaryRef.current.blocked, 0);
+
+            if (deltaAllowed > 0 || deltaBlocked > 0) {
+                const bucketTime = update.timestamp ? new Date(update.timestamp) : new Date();
+                bucketTime.setSeconds(0, 0);
+                const bucketTimestamp = bucketTime.getTime();
+
+                const buckets = [...windowBucketsRef.current];
+                const lastBucket = buckets[buckets.length - 1];
+
+                if (lastBucket && lastBucket.timestamp === bucketTimestamp) {
+                    buckets[buckets.length - 1] = {
+                        ...lastBucket,
+                        allowed: lastBucket.allowed + deltaAllowed,
+                        blocked: lastBucket.blocked + deltaBlocked
+                    };
+                } else {
+                    buckets.push({
+                        timestamp: bucketTimestamp,
+                        allowed: deltaAllowed,
+                        blocked: deltaBlocked
+                    });
+                }
+
+                const cutoff = Date.now() - maxBucketMinutes * 60 * 1000;
+                windowBucketsRef.current = buckets.filter(
+                    bucket => bucket.timestamp >= cutoff
+                );
+
+                const totals = computeWindowTotals(
+                    windowBucketsRef.current,
+                    rollingWindowRef.current * 60 * 1000
+                );
+
+                setStats(prev => ({
+                    ...prev,
+                    requestsAllowed: totals.allowed,
+                    requestsBlocked: totals.blocked
+                }));
+            }
+        }
+
+        lastSummaryRef.current = summary;
+    };
+
+    const handleSnapshot = (snapshot) => {
+        if (!snapshot) {
+            return;
+        }
+
+        const summary = snapshot.summary || {};
+        const timeseries = snapshot.timeseries || [];
+        const traffic = snapshot.traffic || [];
+
+        windowBucketsRef.current = timeseries.map(point => ({
+            timestamp: new Date(point.timestamp).getTime(),
+            allowed: point.allowed || 0,
+            blocked: point.blocked || 0
+        }));
+
+        const totals = computeWindowTotals(
+            windowBucketsRef.current,
+            rollingWindowRef.current * 60 * 1000
+        );
+
+        setTrafficLogs(traffic);
+
+        setStats(prev => ({
+            ...prev,
+            totalRules: summary.activePolicies || prev.totalRules,
+            requestsAllowed: totals.allowed,
+            requestsBlocked: totals.blocked,
+            requestsQueued: computeQueuedCount(traffic, rollingWindowRef.current),
+            loading: false,
+            error: null,
+            isConnected: true
+        }));
+
+        lastSummaryRef.current = {
+            allowed: summary.requestsAllowed || 0,
+            blocked: summary.requestsBlocked || 0
+        };
+    };
+
+    const handleTrafficUpdate = (logEntry) => {
+        if (!logEntry) {
+            return;
+        }
+
+        setTrafficLogs(prev => {
+            const next = [logEntry, ...prev];
+            return next.slice(0, 100);
+        });
     };
 
     if (stats.loading) {
@@ -226,7 +281,7 @@ export default function Dashboard() {
                 </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
                 <StatCard
                     icon={<ShieldCheck className="w-6 h-6" />}
                     label="Requests Allowed"
@@ -240,6 +295,13 @@ export default function Dashboard() {
                     value={stats.requestsBlocked.toLocaleString()}
                     subtext={rollingWindowMinutes === 0 ? 'Latest bucket' : `Last ${rollingWindowMinutes} minutes`}
                     color="red"
+                />
+                <StatCard
+                    icon={<Clock className="w-6 h-6" />}
+                    label="Requests Queued"
+                    value={stats.requestsQueued.toLocaleString()}
+                    subtext={rollingWindowMinutes === 0 ? 'Latest bucket' : `Last ${rollingWindowMinutes} minutes`}
+                    color="amber"
                 />
                 <StatCard
                     icon={<Activity className="w-6 h-6" />}
@@ -333,6 +395,7 @@ function StatCard({ icon, label, value, subtext, color }) {
         indigo: 'bg-indigo-50 text-indigo-600',
         green: 'bg-green-50 text-green-600',
         red: 'bg-red-50 text-red-600',
+        amber: 'bg-amber-50 text-amber-600',
     };
 
     return (
