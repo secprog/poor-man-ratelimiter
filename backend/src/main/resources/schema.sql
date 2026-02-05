@@ -17,7 +17,10 @@ CREATE TABLE IF NOT EXISTS rate_limit_rules (
     path_pattern VARCHAR(255) NOT NULL,
     allowed_requests INTEGER NOT NULL,
     window_seconds INTEGER NOT NULL,
-    active BOOLEAN DEFAULT true
+    active BOOLEAN DEFAULT TRUE,
+    queue_enabled BOOLEAN DEFAULT FALSE,
+    max_queue_size INT DEFAULT 0,
+    delay_per_request_ms INT DEFAULT 100
 );
 
 CREATE TABLE IF NOT EXISTS rate_limit_state (
@@ -74,6 +77,6 @@ VALUES ('/**', 'IP_BASED', 10, 20, 1)
 ON CONFLICT DO NOTHING;
 
 -- Insert a default rate limit rule for testing (100 requests per 60 seconds)
-INSERT INTO rate_limit_rules (id, path_pattern, allowed_requests, window_seconds, active)
-VALUES ('00000000-0000-0000-0000-000000000001', '/**', 100, 60, true)
+INSERT INTO rate_limit_rules (id, path_pattern, allowed_requests, window_seconds, active, queue_enabled, max_queue_size, delay_per_request_ms)
+VALUES ('00000000-0000-0000-0000-000000000001', '/**', 100, 60, true, false, 0, 100)
 ON CONFLICT DO NOTHING;

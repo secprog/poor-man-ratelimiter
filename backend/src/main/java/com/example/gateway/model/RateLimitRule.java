@@ -19,4 +19,9 @@ public class RateLimitRule {
     private int allowedRequests;
     private int windowSeconds;
     private boolean active;
+    
+    // Leaky bucket / queueing configuration
+    private boolean queueEnabled;
+    private int maxQueueSize;
+    private int delayPerRequestMs;
 }

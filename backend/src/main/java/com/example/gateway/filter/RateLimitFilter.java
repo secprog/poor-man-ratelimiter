@@ -1,5 +1,6 @@
 package com.example.gateway.filter;
 
+import com.example.gateway.dto.RateLimitResult;
 import com.example.gateway.service.RateLimiterService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -10,6 +11,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
+
+import java.time.Duration;
 
 @Component
 @RequiredArgsConstructor
@@ -25,17 +28,30 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
                 ? exchange.getRequest().getRemoteAddress().getAddress().getHostAddress()
                 : "unknown";
 
-        // Skip rate limiting for static resources or internal APIs if needed
-        // For now, limit everything unless rules say otherwise (or if no rules match,
-        // we allow)
-
         return rateLimiterService.isAllowed(path, ip)
-                .flatMap(allowed -> {
-                    if (allowed) {
-                        return chain.filter(exchange);
-                    } else {
+                .flatMap(result -> {
+                    if (!result.isAllowed()) {
+                        // Rate limit exceeded and no queueing
                         exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
+                        if (result.isQueued()) {
+                            exchange.getResponse().getHeaders().add("X-RateLimit-Queued", "true");
+                        }
                         return exchange.getResponse().setComplete();
+                    }
+                    
+                    // Add headers to indicate queue status
+                    if (result.isQueued()) {
+                        exchange.getResponse().getHeaders().add("X-RateLimit-Queued", "true");
+                        exchange.getResponse().getHeaders().add("X-RateLimit-Delay-Ms", String.valueOf(result.getDelayMs()));
+                    }
+                    
+                    // Apply delay if queued
+                    if (result.getDelayMs() > 0) {
+                        log.debug("Delaying request to {} from {} by {}ms", path, ip, result.getDelayMs());
+                        return Mono.delay(Duration.ofMillis(result.getDelayMs()))
+                                .then(chain.filter(exchange));
+                    } else {
+                        return chain.filter(exchange);
                     }
                 });
     }

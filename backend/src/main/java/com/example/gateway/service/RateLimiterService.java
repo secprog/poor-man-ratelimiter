@@ -1,5 +1,6 @@
 package com.example.gateway.service;
 
+import com.example.gateway.dto.RateLimitResult;
 import com.example.gateway.model.RateLimitRule;
 import com.example.gateway.model.RequestCounter;
 import com.example.gateway.model.TrafficLog;
@@ -17,8 +18,11 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 @RequiredArgsConstructor
@@ -32,10 +36,25 @@ public class RateLimiterService {
 
     private final List<RateLimitRule> activeRules = new CopyOnWriteArrayList<>();
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
+    
+    // Track queue depth per rule+IP for leaky bucket delays
+    private final Map<String, AtomicInteger> queueDepths = new ConcurrentHashMap<>();
 
     @PostConstruct
     public void loadRules() {
         refreshRules().subscribe();
+        // Start background task to clean up stale queue entries
+        startQueueCleanupTask();
+    }
+    
+    private void startQueueCleanupTask() {
+        // Clean up queue depths every 60 seconds
+        Mono.delay(Duration.ofSeconds(60))
+                .repeat()
+                .subscribe(tick -> {
+                    queueDepths.entrySet().removeIf(entry -> entry.getValue().get() <= 0);
+                    log.debug("Queue cleanup: {} active queues", queueDepths.size());
+                });
     }
 
     public Mono<Void> refreshRules() {
@@ -49,7 +68,7 @@ public class RateLimiterService {
                 .then();
     }
 
-    public Mono<Boolean> isAllowed(String path, String clientIp) {
+    public Mono<RateLimitResult> isAllowed(String path, String clientIp) {
         // Find matching rule (first match wins or most specific? strict order?)
         // For simplicity: first match.
         RateLimitRule matchedRule = activeRules.stream()
@@ -58,17 +77,19 @@ public class RateLimiterService {
                 .orElse(null);
 
         if (matchedRule == null) {
-            return logTraffic(path, clientIp, 200, true).thenReturn(true);
+            return logTraffic(path, clientIp, 200, true)
+                    .thenReturn(new RateLimitResult(true, 0, false));
         }
 
         return checkLimit(matchedRule, clientIp)
-                .flatMap(allowed -> {
-                    int status = allowed ? 200 : 429;
-                    return logTraffic(path, clientIp, status, allowed).thenReturn(allowed);
+                .flatMap(result -> {
+                    int status = result.isAllowed() ? 200 : 429;
+                    return logTraffic(path, clientIp, status, result.isAllowed())
+                            .thenReturn(result);
                 });
     }
 
-    private Mono<Boolean> checkLimit(RateLimitRule rule, String clientIp) {
+    private Mono<RateLimitResult> checkLimit(RateLimitRule rule, String clientIp) {
         return counterRepository.findByRuleIdAndClientIp(rule.getId(), clientIp)
                 .defaultIfEmpty(new RequestCounter(rule.getId(), clientIp, 0, LocalDateTime.now()))
                 .flatMap(counter -> {
@@ -77,18 +98,64 @@ public class RateLimiterService {
 
                     if (now.isAfter(windowEnd)) {
                         // Reset and allow
-                        return updateCounter(rule.getId(), clientIp, 1, now).thenReturn(true);
+                        return updateCounter(rule.getId(), clientIp, 1, now)
+                                .thenReturn(new RateLimitResult(true, 0, false));
                     } else {
                         if (counter.getRequestCount() < rule.getAllowedRequests()) {
                             // Increment and allow
                             return updateCounter(rule.getId(), clientIp, counter.getRequestCount() + 1, counter.getWindowStart())
-                                    .thenReturn(true);
+                                    .thenReturn(new RateLimitResult(true, 0, false));
                         } else {
                             // Rate limit exceeded
-                            return Mono.just(false);
+                            if (rule.isQueueEnabled()) {
+                                return handleQueue(rule, clientIp);
+                            } else {
+                                return Mono.just(new RateLimitResult(false, 0, false));
+                            }
                         }
                     }
                 });
+    }
+    
+    private Mono<RateLimitResult> handleQueue(RateLimitRule rule, String clientIp) {
+        String queueKey = rule.getId() + ":" + clientIp;
+        AtomicInteger queueDepth = queueDepths.computeIfAbsent(queueKey, k -> new AtomicInteger(0));
+        
+        // Atomically check and increment queue depth
+        int position;
+        while (true) {
+            int currentDepth = queueDepth.get();
+            
+            // Check if queue is full
+            if (currentDepth >= rule.getMaxQueueSize()) {
+                log.debug("Queue full for rule {} and IP {}: depth={}, max={}", 
+                        rule.getPathPattern(), clientIp, currentDepth, rule.getMaxQueueSize());
+                return Mono.just(new RateLimitResult(false, 0, false));
+            }
+            
+            // Try to atomically increment
+            if (queueDepth.compareAndSet(currentDepth, currentDepth + 1)) {
+                position = currentDepth + 1;  // This is our position in the queue
+                break;
+            }
+            // If CAS failed, loop and try again
+        }
+        
+        // Calculate delay based on position
+        long delayMs = (long) position * rule.getDelayPerRequestMs();
+        
+        log.debug("Request queued for rule {} and IP {}: position={}, delay={}ms", 
+                rule.getPathPattern(), clientIp, position, delayMs);
+        
+        // Schedule decrement after the delay to allow new requests
+        Mono.delay(Duration.ofMillis(delayMs))
+                .doOnNext(tick -> {
+                    queueDepth.decrementAndGet();
+                    log.trace("Queue depth decremented for {}: now {}", queueKey, queueDepth.get());
+                })
+                .subscribe();
+        
+        return Mono.just(new RateLimitResult(true, delayMs, true));
     }
 
     private Mono<Void> updateCounter(UUID ruleId, String clientIp, int newCount, LocalDateTime windowStart) {
