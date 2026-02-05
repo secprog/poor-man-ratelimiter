@@ -19,6 +19,7 @@ export default function Policies() {
         allowedRequests: 100,
         windowSeconds: 60,
         active: true,
+        priority: 0,
         queueEnabled: false,
         maxQueueSize: 10,
         delayPerRequestMs: 500,
@@ -36,7 +37,10 @@ export default function Policies() {
         // Body fields
         bodyFieldPath: '',
         bodyLimitType: 'replace_ip',
-        bodyContentType: 'application/json'
+        bodyContentType: 'application/json',
+        // Route predicates
+        methods: '',  // Comma-separated HTTP methods (e.g., "GET,POST")
+        hosts: ''     // Comma-separated host patterns (e.g., "api.example.com,*.example.com")
     });
 
     useEffect(() => {
@@ -103,7 +107,9 @@ export default function Policies() {
             cookieLimitType: 'replace_ip',
             bodyFieldPath: '',
             bodyLimitType: 'replace_ip',
-            bodyContentType: 'application/json'
+            bodyContentType: 'application/json',
+            methods: '',
+            hosts: ''
         });
         setModalOpen(true);
         await prepareForm();
@@ -149,7 +155,9 @@ export default function Policies() {
             cookieLimitType: policy.cookieLimitType || 'replace_ip',
             bodyFieldPath: policy.bodyFieldPath || '',
             bodyLimitType: policy.bodyLimitType || 'replace_ip',
-            bodyContentType: policy.bodyContentType || 'application/json'
+            bodyContentType: policy.bodyContentType || 'application/json',
+            methods: policy.methods || '',
+            hosts: policy.hosts || ''
         });
         setModalOpen(true);
         await prepareForm();
@@ -205,7 +213,9 @@ export default function Policies() {
             bodyLimitEnabled: bodyLimitEnabled,
             bodyFieldPath: formData.bodyFieldPath,
             bodyLimitType: formData.bodyLimitType,
-            bodyContentType: formData.bodyContentType
+            bodyContentType: formData.bodyContentType,
+            methods: formData.methods.trim() || null,
+            hosts: formData.hosts.trim() || null
         };
 
         try {
@@ -304,7 +314,23 @@ export default function Policies() {
                                         </div>
                                     </div>
                                 </td>
-                                <td className="px-6 py-4 font-medium font-mono text-sm">{policy.pathPattern}</td>
+                                <td className="px-6 py-4">
+                                    <div className="font-medium font-mono text-sm">{policy.pathPattern}</div>
+                                    {(policy.methods || policy.hosts) && (
+                                        <div className="flex flex-wrap gap-1 mt-1">
+                                            {policy.methods && (
+                                                <span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md font-mono">
+                                                    {policy.methods}
+                                                </span>
+                                            )}
+                                            {policy.hosts && (
+                                                <span className="text-xs px-2 py-0.5 bg-green-50 text-green-700 rounded-md font-mono">
+                                                    {policy.hosts}
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+                                </td>
                                 <td className="px-6 py-4 font-mono text-xs text-gray-600 break-all">{policy.targetUri || '-'}</td>
                                 <td className="px-6 py-4">{policy.allowedRequests} req</td>
                                 <td className="px-6 py-4">{policy.windowSeconds}s</td>
@@ -411,6 +437,37 @@ export default function Policies() {
                                     required
                                 />
                                 <p className="text-xs text-gray-500 mt-1">Use Ant-style patterns: /** for all, /api/** for API routes</p>
+
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                                    HTTP Methods (optional)
+                                                                </label>
+                                                                <input
+                                                                    type="text"
+                                                                    name="methods"
+                                                                    value={formData.methods}
+                                                                    onChange={handleInputChange}
+                                                                    placeholder="e.g., GET,POST (leave empty for all)"
+                                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                                />
+                                                                <p className="text-xs text-gray-500 mt-1">Comma-separated methods. Empty = match all methods</p>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                                    Hosts (optional)
+                                                                </label>
+                                                                <input
+                                                                    type="text"
+                                                                    name="hosts"
+                                                                    value={formData.hosts}
+                                                                    onChange={handleInputChange}
+                                                                    placeholder="e.g., api.example.com,*.example.com"
+                                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                                />
+                                                                <p className="text-xs text-gray-500 mt-1">Comma-separated hosts. Supports wildcards. Empty = match all hosts</p>
+                                                            </div>
+                                                        </div>
                             </div>
 
                             <div>

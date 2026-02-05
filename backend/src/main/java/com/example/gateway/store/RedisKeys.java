@@ -4,10 +4,8 @@ import java.util.UUID;
 
 public final class RedisKeys {
     public static final String RATE_LIMIT_RULES_HASH = "rate_limit_rules";
-    public static final String RATE_LIMIT_POLICIES_HASH = "rate_limit_policies";
     public static final String SYSTEM_CONFIG_HASH = "system_config";
     public static final String ROUTE_DEFINITIONS_HASH = "gateway_route_definitions";
-    public static final String POLICY_ID_SEQUENCE = "rate_limit_policy:id:seq";
     public static final String REQUEST_STATS_INDEX = "request_stats:index";
     public static final String REQUEST_STATS_PREFIX = "request_stats:";
     public static final String RATE_LIMIT_STATE_PREFIX = "rate_limit_state:";

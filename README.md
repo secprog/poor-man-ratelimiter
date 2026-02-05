@@ -37,7 +37,7 @@ Production-ready API gateway with advanced rate limiting, anti-bot defenses, rea
 - **Traffic Logging**: Persistent logs with timestamp, path, IP, status, and allow/block decision
 - **Time Series Data**: Visualizations powered by Recharts
 - **Request Counters**: Per-rule, per-IP tracking with automatic window cleanup
-- **Summary Stats**: Allowed/blocked counts, active policies, queue depth
+- **Summary Stats**: Allowed/blocked counts, active rules, queue depth
 
 ### Admin UI
 - **Dashboard**: Real-time monitoring with WebSocket connection indicator
@@ -371,10 +371,9 @@ python test-gateway.py # Terminal 2
 backend/src/main/java/com/example/gateway/
 ├── GatewayApplication.java          # Spring Boot entry point
 ├── config/
-│   ├── RateLimiterConfig.java       # Caffeine cache setup
+│   ├── AdminServerConfig.java       # Admin API server config
 │   └── WebSocketConfig.java         # WebSocket handler mapping
 ├── controller/
-│   ├── AdminController.java         # Policy CRUD
 │   ├── AnalyticsController.java     # Stats endpoints
 │   ├── RateLimitRuleController.java # Rule management + queue config
 │   ├── SystemConfigController.java  # Settings CRUD
@@ -386,15 +385,11 @@ backend/src/main/java/com/example/gateway/
 │   ├── RateLimitFilter.java         # Token bucket + queueing logic
 │   └── AntiBotFilter.java           # Honeypot, timing, token validation
 ├── model/
-│   ├── RateLimitPolicy.java         # Policy entity
 │   ├── RateLimitRule.java           # Rule entity (with queue fields)
 │   ├── RequestCounter.java          # Per-IP counter
 │   ├── SystemConfig.java            # Config key-value store
 │   └── TrafficLog.java              # Request log entry
-├── ratelimit/
-│   └── RedisRateLimiter.java        # Token bucket implementation
 ├── store/
-│   ├── RateLimitPolicyStore.java
 │   ├── RateLimitRuleStore.java
 │   ├── RequestCounterStore.java
 │   ├── SystemConfigStore.java
@@ -402,9 +397,8 @@ backend/src/main/java/com/example/gateway/
 ├── service/
 │   ├── AnalyticsService.java        # Stats aggregation + broadcasting
 │   ├── ConfigurationService.java    # Cached config access
-│   ├── PolicyService.java           # Policy business logic
 │   ├── RateLimiterService.java      # Queue management + CAS loops
-│   └── RedisBootstrapService.java   # Default rule/policy seeding
+│   └── RedisBootstrapService.java   # Default rule seeding
 └── websocket/
     ├── AnalyticsBroadcaster.java    # Flux sink for WebSocket
     └── AnalyticsWebSocketHandler.java # WebSocket connection handler
@@ -427,7 +421,6 @@ frontend/src/
 ```
 
 ### Redis Keyspace
-- `rate_limit_policies` (hash) - Route-based policy definitions
 - `rate_limit_rules` (hash) - Path-based rules with queue config
 - `rate_limit_state:<key>` (hash) - Token bucket state
 - `request_counter:<ruleId>:<identifier>` (string JSON, TTL)
@@ -451,8 +444,6 @@ Use `headerLimitType`, `cookieLimitType`, or `bodyLimitType` to combine with IP 
 ## 🔒 Security Considerations
 
 ### Configuration Keys
-- **`trust-x-forwarded-for`**: Set to `true` only behind trusted proxy (default: `false`)
-- **`ip-header-name`**: Header for client IP extraction (default: `X-Forwarded-For`)
 - **`antibot-enabled`**: Master switch for anti-bot features (default: `true`)
 - **`analytics-retention-days`**: Days of time-series analytics to keep (default: `7`)
 - **`traffic-logs-retention-hours`**: Hours to keep raw request logs (default: `24`)
@@ -507,12 +498,11 @@ TEST_SERVER_URL=http://localhost:9000
 ```
 
 ### Production Checklist
-- [ ] Set `trust-x-forwarded-for` based on proxy configuration
 - [ ] Secure Redis access (auth, ACLs, private network)
 - [ ] Configure CORS for your frontend domain
 - [ ] Enable HTTPS with TLS certificates
 - [ ] Set up Redis backups (AOF/RDB) and monitoring
-- [ ] Tune cache sizes in `RateLimiterConfig.java`
+- [ ] Tune cache sizes in `AntiBotFilter.java`
 - [ ] Configure log aggregation for `traffic_logs`
 - [ ] Set up health checks and metrics
 

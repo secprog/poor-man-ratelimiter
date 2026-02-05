@@ -45,4 +45,8 @@ public class RateLimitRule {
     private boolean cookieLimitEnabled;
     private String cookieName;  // Cookie name to extract from (e.g., "session_id", "user_token")
     private String cookieLimitType;  // "replace_ip" or "combine_with_ip"
+    
+    // Route predicates for filtering
+    private String methods;  // Comma-separated HTTP methods (e.g., "GET,POST" or null for any)
+    private String hosts;    // Comma-separated host patterns (e.g., "api.example.com,*.example.com" or null for any)
 }

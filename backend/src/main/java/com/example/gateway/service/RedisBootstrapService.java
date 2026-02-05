@@ -1,8 +1,6 @@
 package com.example.gateway.service;
 
-import com.example.gateway.model.RateLimitPolicy;
 import com.example.gateway.model.RateLimitRule;
-import com.example.gateway.store.RateLimitPolicyStore;
 import com.example.gateway.store.RateLimitRuleStore;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -20,12 +18,10 @@ public class RedisBootstrapService {
     private static final UUID DEFAULT_RULE_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
     private final RateLimitRuleStore ruleStore;
-    private final RateLimitPolicyStore policyStore;
 
     @PostConstruct
     public void seedDefaults() {
         seedDefaultRule().subscribe();
-        seedDefaultPolicy().subscribe();
     }
 
     private Mono<Void> seedDefaultRule() {
@@ -52,31 +48,13 @@ public class RedisBootstrapService {
                 "replace_ip",
                 false,
                 null,
-                "replace_ip");
+                "replace_ip",
+                null,
+                null);
 
         return ruleStore.findById(DEFAULT_RULE_ID)
                 .switchIfEmpty(ruleStore.save(defaultRule)
                         .doOnSuccess(rule -> log.info("Seeded default rate limit rule")))
                 .then();
-    }
-
-    private Mono<Void> seedDefaultPolicy() {
-        RateLimitPolicy defaultPolicy = new RateLimitPolicy();
-        defaultPolicy.setRoutePattern("/**");
-        defaultPolicy.setLimitType("GLOBAL");
-        defaultPolicy.setReplenishRate(10);
-        defaultPolicy.setBurstCapacity(20);
-        defaultPolicy.setRequestedTokens(1);
-
-        return policyStore.findAll()
-                .hasElements()
-                .flatMap(hasElements -> {
-                    if (hasElements) {
-                        return Mono.empty();
-                    }
-                    return policyStore.save(defaultPolicy)
-                            .doOnSuccess(policy -> log.info("Seeded default rate limit policy"))
-                            .then();
-                });
     }
 }

@@ -23,8 +23,6 @@ public class ConfigurationService {
             .build();
 
         private static final Map<String, String> DEFAULT_CONFIGS = Map.ofEntries(
-            Map.entry("ip-header-name", "X-Forwarded-For"),
-            Map.entry("trust-x-forwarded-for", "false"),
             Map.entry("antibot-enabled", "true"),
             Map.entry("antibot-min-submit-time", "2000"),
             Map.entry("antibot-honeypot-field", "_hp_email"),

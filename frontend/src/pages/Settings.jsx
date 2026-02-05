@@ -84,51 +84,6 @@ export default function Settings() {
 
             <div className="grid grid-cols-1 gap-6">
 
-                {/* IP Resolution Settings */}
-                <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                    <h2 className="text-lg font-semibold mb-4 text-gray-800">IP Resolution & Proxy</h2>
-                    <div className="space-y-4">
-                        <div>
-                            <label className="flex items-center space-x-3 cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={configs['trust-x-forwarded-for'] === 'true'}
-                                    onChange={(e) => handleChange('trust-x-forwarded-for', String(e.target.checked))}
-                                    className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500"
-                                />
-                                <div>
-                                    <span className="font-medium text-gray-700">Trust Proxy Headers</span>
-                                    <p className="text-sm text-gray-500">Enable only if this gateway is behind a trusted load balancer (e.g. AWS ALB, Nginx, Cloudflare).</p>
-                                </div>
-                            </label>
-                        </div>
-
-                        <div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">IP Header Name</label>
-                                <input
-                                    type="text"
-                                    value={configs['ip-header-name'] || 'X-Forwarded-For'}
-                                    onChange={(e) => handleChange('ip-header-name', e.target.value)}
-                                    className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                                />
-                                <p className="text-xs text-gray-500 mt-1">Default: X-Forwarded-For. For Cloudflare use 'CF-Connecting-IP'.</p>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">API Key Header Name</label>
-                                <input
-                                    type="text"
-                                    value={configs['api-key-header-name'] || 'X-API-Key'}
-                                    onChange={(e) => handleChange('api-key-header-name', e.target.value)}
-                                    className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                                />
-                                <p className="text-xs text-gray-500 mt-1">Header used for 'API Key' rate limiting (e.g., X-API-Key, X-IBM-Client-Id).</p>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
                 {/* Anti-Bot Settings */}
                 <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                     <h2 className="text-lg font-semibold mb-4 text-gray-800">Anti-Bot Protection</h2>

@@ -96,7 +96,7 @@ All controllers in [backend/src/main/java/com/example/gateway/controller](backen
   - Thread-safe Flux sink for broadcasting `AnalyticsUpdate` messages
 
 #### Redis Storage
-- **Rules/Policies**: `rate_limit_rules`, `rate_limit_policies` hashes
+- **Rules**: `rate_limit_rules` hash
 - **Counters**: `request_counter:<ruleId>:<identifier>` (JSON, TTL)
 - **Token bucket state**: `rate_limit_state:<key>` (hash)
 - **System config**: `system_config` hash
@@ -263,13 +263,6 @@ Configured via `antibot-challenge-type` in `system_config`:
 
 ## Security Considerations
 
-### Sensitive Settings
-- **`trust-x-forwarded-for`**: ONLY set to `true` behind trusted reverse proxy (default: `false`)
-  - False: Use direct connection IP
-  - True: Trust `X-Forwarded-For` header (opens IP spoofing vector)
-  
-- **`ip-header-name`**: Header to extract client IP from (default: `X-Forwarded-For`)
-
 ### CORS
 - Controllers have `@CrossOrigin` for development convenience
 - Production: Configure specific origins, not `*`
@@ -347,7 +340,7 @@ done
 ## Performance Tuning
 
 ### Caffeine Cache Sizes
-In [RateLimiterConfig.java](backend/src/main/java/com/example/gateway/config/RateLimiterConfig.java) or `AntiBotFilter.java`:
+In `AntiBotFilter.java`:
 - `validTokens`: 100,000 entries (10min expiry)
 - `usedTokens`: 100,000 entries (15min expiry)
 - `idempotencyKeys`: 100,000 entries (1hour expiry)

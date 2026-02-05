@@ -102,14 +102,26 @@ public class RateLimiterService {
      * @return RateLimitResult indicating if request is allowed, and any delay
      */
     public Mono<RateLimitResult> isAllowed(ServerWebExchange exchange, String path, String clientIp, String authHeader, byte[] bodyBytes) {
+        // Extract method and host from exchange
+        String method = exchange != null && exchange.getRequest().getMethod() != null 
+                ? exchange.getRequest().getMethod().toString() 
+                : null;
+        String host = exchange != null && exchange.getRequest().getURI().getHost() != null 
+                ? exchange.getRequest().getURI().getHost() 
+                : null;
+        
         List<RateLimitRule> specificRules = activeRules.stream()
             .filter(rule -> !isGlobalRule(rule))
             .filter(rule -> pathMatcher.match(rule.getPathPattern(), path))
+            .filter(rule -> matchesMethodPredicate(rule, method))
+            .filter(rule -> matchesHostPredicate(rule, host))
             .toList();
 
         List<RateLimitRule> globalRules = activeRules.stream()
             .filter(this::isGlobalRule)
             .filter(rule -> pathMatcher.match(rule.getPathPattern(), path))
+            .filter(rule -> matchesMethodPredicate(rule, method))
+            .filter(rule -> matchesHostPredicate(rule, host))
             .toList();
 
         if (specificRules.isEmpty() && globalRules.isEmpty()) {
@@ -338,6 +350,69 @@ public class RateLimiterService {
     private boolean isGlobalRule(RateLimitRule rule) {
         String pattern = rule.getPathPattern();
         return pattern != null && pattern.trim().equals("/**");
+    }
+    
+    /**
+     * Check if the request method matches the rule's method predicate.
+     * If the rule has no methods configured, it matches any method.
+     *
+     * @param rule Rate limit rule
+     * @param method HTTP method (e.g., "GET", "POST")
+     * @return true if the method matches or no methods are configured
+     */
+    private boolean matchesMethodPredicate(RateLimitRule rule, String method) {
+        String ruleMethods = rule.getMethods();
+        if (ruleMethods == null || ruleMethods.isBlank()) {
+            return true; // No method filter, match all
+        }
+        
+        if (method == null) {
+            return false; // Rule requires method but request has none
+        }
+        
+        // Split by comma and check if any method matches
+        String[] methods = ruleMethods.split(",");
+        for (String ruleMethod : methods) {
+            if (ruleMethod.trim().equalsIgnoreCase(method)) {
+                return true;
+            }
+        }
+        
+        log.debug("Request method '{}' does not match rule methods '{}'", method, ruleMethods);
+        return false;
+    }
+    
+    /**
+     * Check if the request host matches the rule's host predicate.
+     * If the rule has no hosts configured, it matches any host.
+     * Supports wildcard patterns (e.g., "*.example.com").
+     *
+     * @param rule Rate limit rule
+     * @param host Request host (e.g., "api.example.com")
+     * @return true if the host matches or no hosts are configured
+     */
+    private boolean matchesHostPredicate(RateLimitRule rule, String host) {
+        String ruleHosts = rule.getHosts();
+        if (ruleHosts == null || ruleHosts.isBlank()) {
+            return true; // No host filter, match all
+        }
+        
+        if (host == null) {
+            return false; // Rule requires host but request has none
+        }
+        
+        // Split by comma and check if any host matches
+        String[] hosts = ruleHosts.split(",");
+        for (String ruleHost : hosts) {
+            String trimmedHost = ruleHost.trim();
+            // Support wildcard patterns using AntPathMatcher
+            if (pathMatcher.match(trimmedHost, host)) {
+                return true;
+            }
+        }
+        
+        log.debug("Request host '{}' does not match rule hosts '{}'", host, ruleHosts);
+        return false;
     }
     
     private Mono<RateLimitResult> handleQueue(RateLimitRule rule, String identifier) {

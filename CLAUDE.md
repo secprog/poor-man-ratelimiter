@@ -202,7 +202,6 @@ See `QUEUEING_IMPLEMENTATION.md` for detailed design notes.
 
 ## Security Considerations
 
-- `trust-x-forwarded-for` in `application.yml` is sensitive (affects IP detection for rate limiting)
 - CORS configured at controller level
 - Redis connection config in `application.yml` and `docker-compose.yml`
 - Form tokens stored in Caffeine caches (in-memory, ephemeral)

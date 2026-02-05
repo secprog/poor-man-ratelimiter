@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Activity, TrendingUp, TrendingDown, BarChart3 } from 'lucide-react';
 import {
     LineChart,
@@ -35,40 +35,80 @@ export default function Analytics() {
     });
     const [timeRange, setTimeRange] = useState(1); // hours
     const [loading, setLoading] = useState(true);
+    const isRefreshingRef = useRef(false);
+    const lastSummaryRef = useRef(null);
 
     useEffect(() => {
         fetchTimeSeriesData();
 
         // Subscribe to WebSocket for real-time updates
         const unsubscribe = analyticsWs.subscribe((update) => {
-            setStats({
-                requestsAllowed: update.requestsAllowed || 0,
-                requestsBlocked: update.requestsBlocked || 0,
-                activePolicies: update.activePolicies || 0,
+            const summary = {
+                allowed: update.requestsAllowed || 0,
+                blocked: update.requestsBlocked || 0
+            };
+
+            setStats(prev => ({
+                ...prev,
+                activePolicies: update.activePolicies || prev.activePolicies,
                 isConnected: true
-            });
+            }));
 
-            // Add new data point to time series
-            const now = new Date();
-            setTimeSeriesData(prev => {
-                const newPoint = {
-                    time: now.toLocaleTimeString(),
-                    timestamp: now.getTime(),
-                    allowed: update.requestsAllowed || 0,
-                    blocked: update.requestsBlocked || 0,
-                    total: (update.requestsAllowed || 0) + (update.requestsBlocked || 0)
-                };
+            if (lastSummaryRef.current) {
+                const deltaAllowed = Math.max(summary.allowed - lastSummaryRef.current.allowed, 0);
+                const deltaBlocked = Math.max(summary.blocked - lastSummaryRef.current.blocked, 0);
 
-                // Keep last 50 points for live view
-                const updated = [...prev, newPoint].slice(-50);
-                return updated;
-            });
+                if (deltaAllowed > 0 || deltaBlocked > 0) {
+                    const bucketTime = update.timestamp ? new Date(update.timestamp) : new Date();
+                    bucketTime.setSeconds(0, 0);
+                    const bucketTimestamp = bucketTime.getTime();
+
+                    setTimeSeriesData(prev => {
+                        const updated = [...prev];
+                        const lastPoint = updated[updated.length - 1];
+                        if (lastPoint && lastPoint.timestamp === bucketTimestamp) {
+                            lastPoint.allowed += deltaAllowed;
+                            lastPoint.blocked += deltaBlocked;
+                            lastPoint.total = lastPoint.allowed + lastPoint.blocked;
+                        } else {
+                            updated.push({
+                                time: bucketTime.toLocaleTimeString(),
+                                timestamp: bucketTimestamp,
+                                allowed: deltaAllowed,
+                                blocked: deltaBlocked,
+                                total: deltaAllowed + deltaBlocked
+                            });
+                        }
+
+                        const totals = computeTotals(updated);
+                        setStats(prevStats => ({
+                            ...prevStats,
+                            requestsAllowed: totals.allowed,
+                            requestsBlocked: totals.blocked
+                        }));
+
+                        return updated.slice(-200);
+                    });
+                }
+            }
+
+            lastSummaryRef.current = summary;
         });
 
         return () => unsubscribe();
     }, [timeRange]);
 
+    const computeTotals = (series) => series.reduce(
+        (acc, point) => ({
+            allowed: acc.allowed + (point.allowed || 0),
+            blocked: acc.blocked + (point.blocked || 0)
+        }),
+        { allowed: 0, blocked: 0 }
+    );
+
     const fetchTimeSeriesData = async () => {
+        if (isRefreshingRef.current) return;
+        isRefreshingRef.current = true;
         try {
             setLoading(true);
             const response = await api.get(`/analytics/timeseries?hours=${timeRange}`);
@@ -82,19 +122,20 @@ export default function Analytics() {
             }));
 
             setTimeSeriesData(formattedData);
-            
-            // Get initial stats
-            const statsRes = await api.get('/analytics/summary');
+
+            const totals = computeTotals(formattedData);
             setStats(prev => ({
                 ...prev,
-                requestsAllowed: statsRes.data.allowed || 0,
-                requestsBlocked: statsRes.data.blocked || 0
+                requestsAllowed: totals.allowed,
+                requestsBlocked: totals.blocked
             }));
             
             setLoading(false);
         } catch (err) {
             console.error('Failed to fetch time series data', err);
             setLoading(false);
+        } finally {
+            isRefreshingRef.current = false;
         }
     };
 
@@ -179,7 +220,7 @@ export default function Analytics() {
                 />
                 <StatCard
                     icon={<BarChart3 className="w-6 h-6" />}
-                    title="Active Policies"
+                    title="Active Rules"
                     value={stats.activePolicies}
                     trend={null}
                     color="bg-purple-500"
@@ -321,7 +362,7 @@ export default function Analytics() {
                             suffix="%"
                         />
                         <MetricBar 
-                            label="Active Policies" 
+                            label="Active Rules" 
                             value={stats.activePolicies} 
                             max={20}
                             color={COLORS.primary}
