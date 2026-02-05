@@ -61,10 +61,10 @@ def create_jwt_rule():
     try:
         response = requests.post(ADMIN_API_URL, json=rule)
         response.raise_for_status()
-        print(f"✅ Created JWT rate limit rule: {response.json()['id']}")
+        print(f"[OK] Created JWT rate limit rule: {response.json()['id']}")
         return response.json()
     except Exception as e:
-        print(f"❌ Failed to create rule: {e}")
+        print(f"[FAIL] Failed to create rule: {e}")
         return None
 
 
@@ -81,7 +81,7 @@ def test_jwt_rate_limiting():
 
     for i in range(7):
         response = requests.get(TEST_ENDPOINT, headers=headers_a_x)
-        status_icon = "✅" if response.status_code == 200 else "🚫"
+        status_icon = "[OK]" if response.status_code == 200 else "[BLOCKED]"
         print(f"  Request {i+1}: {status_icon} {response.status_code}")
         time.sleep(0.1)
 
@@ -95,7 +95,7 @@ def test_jwt_rate_limiting():
 
     for i in range(3):
         response = requests.get(TEST_ENDPOINT, headers=headers_b_x)
-        status_icon = "✅" if response.status_code == 200 else "🚫"
+        status_icon = "[OK]" if response.status_code == 200 else "[BLOCKED]"
         print(f"  Request {i+1}: {status_icon} {response.status_code}")
         time.sleep(0.1)
 
@@ -109,7 +109,7 @@ def test_jwt_rate_limiting():
 
     for i in range(3):
         response = requests.get(TEST_ENDPOINT, headers=headers_a_y)
-        status_icon = "✅" if response.status_code == 200 else "🚫"
+        status_icon = "[OK]" if response.status_code == 200 else "[BLOCKED]"
         print(f"  Request {i+1}: {status_icon} {response.status_code}")
         time.sleep(0.1)
 
@@ -118,7 +118,7 @@ def test_jwt_rate_limiting():
 
     for i in range(3):
         response = requests.get(TEST_ENDPOINT)
-        status_icon = "✅" if response.status_code == 200 else "🚫"
+        status_icon = "[OK]" if response.status_code == 200 else "[BLOCKED]"
         print(f"  Request {i+1}: {status_icon} {response.status_code}")
         time.sleep(0.1)
 
@@ -129,7 +129,7 @@ def test_jwt_rate_limiting():
 
     for i in range(3):
         response = requests.get(TEST_ENDPOINT, headers=headers_invalid)
-        status_icon = "✅" if response.status_code == 200 else "🚫"
+        status_icon = "[OK]" if response.status_code == 200 else "[BLOCKED]"
         print(f"  Request {i+1}: {status_icon} {response.status_code}")
         time.sleep(0.1)
 
@@ -144,9 +144,9 @@ def cleanup_rules():
             if rule["pathPattern"] == "/get":
                 delete_url = f"{ADMIN_API_URL}/{rule['id']}"
                 requests.delete(delete_url)
-                print(f"🗑️  Deleted test rule: {rule['id']}")
+                print(f"[OK] Deleted test rule: {rule['id']}")
     except Exception as e:
-        print(f"⚠️  Cleanup error: {e}")
+        print(f"[WARN] Cleanup error: {e}")
 
 
 def main():
@@ -154,30 +154,30 @@ def main():
     print("JWT Rate Limiting Test")
     print("=" * 70)
 
-    print("\n📋 Step 1: Cleaning up any existing test rules...")
+    print("\n[*] Step 1: Cleaning up any existing test rules...")
     cleanup_rules()
 
-    print("\n📋 Step 2: Creating JWT-based rate limit rule...")
+    print("\n[*] Step 2: Creating JWT-based rate limit rule...")
     rule = create_jwt_rule()
 
     if not rule:
-        print("❌ Cannot proceed without a valid rule. Exiting.")
+        print("[!] Cannot proceed without a valid rule. Exiting.")
         return
 
-    print("\n⏳ Waiting 2 seconds for rule to activate...")
+    print("\n[...] Waiting 2 seconds for rule to activate...")
     time.sleep(2)
 
-    print("\n📋 Step 3: Running JWT rate limit tests...")
+    print("\n[*] Step 3: Running JWT rate limit tests...")
     test_jwt_rate_limiting()
 
-    print("\n📋 Step 4: Cleaning up test rules...")
+    print("\n[*] Step 4: Cleaning up test rules...")
     cleanup_rules()
 
     print("\n" + "=" * 70)
-    print("✅ Test complete!")
+    print("[OK] Test complete!")
     print("=" * 70)
 
-    print("\n💡 Key Observations:")
+    print("\n[!] Key Observations:")
     print("  • Different JWT identifiers (sub:tenant_id) have separate quotas")
     print("  • Same user in different tenants = different quotas")
     print("  • Missing/invalid JWT → automatic fallback to IP-based limiting")
