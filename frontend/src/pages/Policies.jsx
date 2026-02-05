@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Trash2, Edit, X, Save, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, Edit, X, Save, AlertTriangle, ArrowUp, ArrowDown } from 'lucide-react';
 import api from '../api';
 import { getFormToken, getAntiBotHeaders } from '../utils/formProtection';
 
@@ -21,22 +21,21 @@ export default function Policies() {
         queueEnabled: false,
         maxQueueSize: 10,
         delayPerRequestMs: 500,
+        // Rate limiting type and configuration
+        rateLimitType: 'IP',  // IP, JWT, HEADER, COOKIE, BODY
         // JWT fields
-        jwtEnabled: false,
-        jwtClaims: '',  // Comma-separated list shown to user, converted to JSON array
+        jwtClaims: '',
         jwtClaimSeparator: ':',
-        // Body-based fields
-        bodyLimitEnabled: false,
-        bodyFieldPath: '',
-        bodyLimitType: 'replace_ip',
-        // Header-based fields
-        headerLimitEnabled: false,
+        // Header fields
         headerName: '',
         headerLimitType: 'replace_ip',
-        // Cookie-based fields
-        cookieLimitEnabled: false,
+        // Cookie fields
         cookieName: '',
-        cookieLimitType: 'replace_ip'
+        cookieLimitType: 'replace_ip',
+        // Body fields
+        bodyFieldPath: '',
+        bodyLimitType: 'replace_ip',
+        bodyContentType: 'application/json'
     });
 
     useEffect(() => {
@@ -46,11 +45,32 @@ export default function Policies() {
     const fetchPolicies = async () => {
         try {
             const res = await api.get('/admin/rules');
-            setPolicies(res.data);
+            // Sort by priority (lower number = higher priority)
+            const sortedPolicies = res.data.sort((a, b) => (a.priority || 0) - (b.priority || 0));
+            setPolicies(sortedPolicies);
         } catch (err) {
             console.error("Failed to fetch policies", err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handlePriorityChange = async (policyId, newPriority) => {
+        try {
+            const policy = policies.find(p => p.id === policyId);
+            if (!policy) return;
+
+            // Update policy with new priority
+            await api.put(`/admin/rules/${policyId}`, {
+                ...policy,
+                priority: newPriority
+            });
+
+            // Refresh the list
+            fetchPolicies();
+        } catch (err) {
+            console.error("Failed to update priority", err);
+            alert("Failed to update priority: " + (err.response?.data?.message || err.message));
         }
     };
 
@@ -68,21 +88,20 @@ export default function Policies() {
             allowedRequests: 100,
             windowSeconds: 60,
             active: true,
+            priority: 0,
             queueEnabled: false,
             maxQueueSize: 10,
             delayPerRequestMs: 500,
-            jwtEnabled: false,
+            rateLimitType: 'IP',
             jwtClaims: '',
             jwtClaimSeparator: ':',
-            bodyLimitEnabled: false,
-            bodyFieldPath: '',
-            bodyLimitType: 'replace_ip',
-            headerLimitEnabled: false,
             headerName: '',
             headerLimitType: 'replace_ip',
-            cookieLimitEnabled: false,
             cookieName: '',
-            cookieLimitType: 'replace_ip'
+            cookieLimitType: 'replace_ip',
+            bodyFieldPath: '',
+            bodyLimitType: 'replace_ip',
+            bodyContentType: 'application/json'
         });
         setModalOpen(true);
         await prepareForm();
@@ -102,26 +121,32 @@ export default function Policies() {
             console.warn("Failed to parse JWT claims", e);
         }
         
+        // Determine rate limit type based on enabled flags (priority: Header > Cookie > Body > JWT > IP)
+        let rateLimitType = 'IP';
+        if (policy.jwtEnabled) rateLimitType = 'JWT';
+        if (policy.bodyLimitEnabled) rateLimitType = 'BODY';
+        if (policy.cookieLimitEnabled) rateLimitType = 'COOKIE';
+        if (policy.headerLimitEnabled) rateLimitType = 'HEADER';
+        
         setFormData({
             pathPattern: policy.pathPattern,
             allowedRequests: policy.allowedRequests,
             windowSeconds: policy.windowSeconds,
             active: policy.active !== undefined ? policy.active : true,
+            priority: policy.priority || 0,
             queueEnabled: policy.queueEnabled || false,
             maxQueueSize: policy.maxQueueSize || 10,
             delayPerRequestMs: policy.delayPerRequestMs || 500,
-            jwtEnabled: policy.jwtEnabled || false,
+            rateLimitType: rateLimitType,
             jwtClaims: jwtClaimsStr,
             jwtClaimSeparator: policy.jwtClaimSeparator || ':',
-            bodyLimitEnabled: policy.bodyLimitEnabled || false,
-            bodyFieldPath: policy.bodyFieldPath || '',
-            bodyLimitType: policy.bodyLimitType || 'replace_ip',
-            headerLimitEnabled: policy.headerLimitEnabled || false,
             headerName: policy.headerName || '',
             headerLimitType: policy.headerLimitType || 'replace_ip',
-            cookieLimitEnabled: policy.cookieLimitEnabled || false,
             cookieName: policy.cookieName || '',
-            cookieLimitType: policy.cookieLimitType || 'replace_ip'
+            cookieLimitType: policy.cookieLimitType || 'replace_ip',
+            bodyFieldPath: policy.bodyFieldPath || '',
+            bodyLimitType: policy.bodyLimitType || 'replace_ip',
+            bodyContentType: policy.bodyContentType || 'application/json'
         });
         setModalOpen(true);
         await prepareForm();
@@ -139,9 +164,15 @@ export default function Policies() {
         // Prepare headers with anti-bot token
         const headers = getAntiBotHeaders(formTokenData, honeypotValue);
 
+        // Convert rateLimitType to individual boolean flags
+        const jwtEnabled = formData.rateLimitType === 'JWT';
+        const headerLimitEnabled = formData.rateLimitType === 'HEADER';
+        const cookieLimitEnabled = formData.rateLimitType === 'COOKIE';
+        const bodyLimitEnabled = formData.rateLimitType === 'BODY';
+
         // Convert comma-separated JWT claims to JSON array
         let jwtClaimsJson = null;
-        if (formData.jwtEnabled && formData.jwtClaims) {
+        if (jwtEnabled && formData.jwtClaims) {
             const claimsArray = formData.jwtClaims
                 .split(',')
                 .map(c => c.trim())
@@ -150,8 +181,27 @@ export default function Policies() {
         }
 
         const payload = {
-            ...formData,
-            jwtClaims: jwtClaimsJson
+            pathPattern: formData.pathPattern,
+            allowedRequests: formData.allowedRequests,
+            windowSeconds: formData.windowSeconds,
+            active: formData.active,
+            priority: formData.priority,
+            queueEnabled: formData.queueEnabled,
+            maxQueueSize: formData.maxQueueSize,
+            delayPerRequestMs: formData.delayPerRequestMs,
+            jwtEnabled: jwtEnabled,
+            jwtClaims: jwtClaimsJson,
+            jwtClaimSeparator: formData.jwtClaimSeparator,
+            headerLimitEnabled: headerLimitEnabled,
+            headerName: formData.headerName,
+            headerLimitType: formData.headerLimitType,
+            cookieLimitEnabled: cookieLimitEnabled,
+            cookieName: formData.cookieName,
+            cookieLimitType: formData.cookieLimitType,
+            bodyLimitEnabled: bodyLimitEnabled,
+            bodyFieldPath: formData.bodyFieldPath,
+            bodyLimitType: formData.bodyLimitType,
+            bodyContentType: formData.bodyContentType
         };
 
         try {
@@ -212,6 +262,7 @@ export default function Policies() {
                 <table className="w-full text-left">
                     <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
                         <tr>
+                            <th className="px-6 py-3">Priority</th>
                             <th className="px-6 py-3">Path Pattern</th>
                             <th className="px-6 py-3">Allowed</th>
                             <th className="px-6 py-3">Window</th>
@@ -222,9 +273,32 @@ export default function Policies() {
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                         {loading ? (
-                            <tr><td colSpan="6" className="p-6 text-center">Loading...</td></tr>
-                        ) : policies.map((policy) => (
+                            <tr><td colSpan="7" className="p-6 text-center">Loading...</td></tr>
+                        ) : policies.map((policy, index) => (
                             <tr key={policy.id} className="hover:bg-gray-50/50">
+                                <td className="px-6 py-4">
+                                    <div className="flex items-center space-x-2">
+                                        <span className="font-semibold text-gray-600">{policy.priority}</span>
+                                        <div className="flex flex-col">
+                                            <button
+                                                onClick={() => handlePriorityChange(policy.id, policy.priority - 1)}
+                                                disabled={index === 0}
+                                                className="text-gray-400 hover:text-indigo-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                                                title="Increase priority (move up)"
+                                            >
+                                                <ArrowUp size={14} />
+                                            </button>
+                                            <button
+                                                onClick={() => handlePriorityChange(policy.id, policy.priority + 1)}
+                                                disabled={index === policies.length - 1}
+                                                className="text-gray-400 hover:text-indigo-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                                                title="Decrease priority (move down)"
+                                            >
+                                                <ArrowDown size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </td>
                                 <td className="px-6 py-4 font-medium font-mono text-sm">{policy.pathPattern}</td>
                                 <td className="px-6 py-4">{policy.allowedRequests} req</td>
                                 <td className="px-6 py-4">{policy.windowSeconds}s</td>
@@ -232,6 +306,14 @@ export default function Policies() {
                                     {policy.jwtEnabled ? (
                                         <span className="px-2 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
                                             JWT
+                                        </span>
+                                    ) : policy.headerLimitEnabled ? (
+                                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                                            HEADER
+                                        </span>
+                                    ) : policy.cookieLimitEnabled ? (
+                                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-700">
+                                            COOKIE
                                         </span>
                                     ) : policy.bodyLimitEnabled ? (
                                         <span className="px-2 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
@@ -273,7 +355,7 @@ export default function Policies() {
                             </tr>
                         ))}
                         {!loading && policies.length === 0 && (
-                            <tr><td colSpan="6" className="p-6 text-center text-gray-500">No rules found. Click "New Rule" to create one.</td></tr>
+                            <tr><td colSpan="7" className="p-6 text-center text-gray-500">No rules found. Click "New Rule" to create one.</td></tr>
                         )}
                     </tbody>
                 </table>
@@ -356,180 +438,316 @@ export default function Policies() {
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="flex items-center space-x-2">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="flex items-center space-x-2">
+                                        <input
+                                            type="checkbox"
+                                            name="active"
+                                            checked={formData.active}
+                                            onChange={handleInputChange}
+                                            className="w-4 h-4 rounded border-gray-300"
+                                        />
+                                        <span className="text-sm font-medium text-gray-700">Active</span>
+                                    </label>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Priority
+                                    </label>
                                     <input
-                                        type="checkbox"
-                                        name="active"
-                                        checked={formData.active}
+                                        type="number"
+                                        name="priority"
+                                        value={formData.priority}
                                         onChange={handleInputChange}
-                                        className="w-4 h-4 rounded border-gray-300"
+                                        min="0"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                     />
-                                    <span className="text-sm font-medium text-gray-700">Active</span>
-                                </label>
+                                    <p className="text-xs text-gray-500 mt-1">Lower = higher priority (evaluated first)</p>
+                                </div>
+                            </div>
+
+                            {/* Rate Limiting Type */}
+                            <div className="border-t border-gray-200 pt-4">
+                                <h3 className="text-sm font-semibold text-gray-700 mb-3">Rate Limiting Type</h3>
+                                
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Limit By
+                                    </label>
+                                    <select
+                                        name="rateLimitType"
+                                        value={formData.rateLimitType}
+                                        onChange={handleInputChange}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    >
+                                        <option value="IP">IP Address (default)</option>
+                                        <option value="JWT">JWT Claims</option>
+                                        <option value="HEADER">HTTP Header</option>
+                                        <option value="COOKIE">Cookie</option>
+                                        <option value="BODY">Request Body Field</option>
+                                    </select>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Choose how to identify clients for rate limiting. IP-based is the default fallback.
+                                    </p>
+                                </div>
                             </div>
 
                             {/* JWT Configuration */}
-                            <div className="border-t border-gray-200 pt-4">
-                                <h3 className="text-sm font-semibold text-gray-700 mb-3">JWT-Based Rate Limiting</h3>
-                                
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="flex items-center space-x-2">
+                            {formData.rateLimitType === 'JWT' && (
+                                <div className="border-t border-gray-200 pt-4">
+                                    <h3 className="text-sm font-semibold text-gray-700 mb-3">JWT Configuration</h3>
+                                    
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                JWT Claims (comma-separated)
+                                            </label>
                                             <input
-                                                type="checkbox"
-                                                name="jwtEnabled"
-                                                checked={formData.jwtEnabled}
+                                                type="text"
+                                                name="jwtClaims"
+                                                value={formData.jwtClaims}
                                                 onChange={handleInputChange}
-                                                className="w-4 h-4 rounded border-gray-300"
+                                                placeholder="e.g., sub, tenant_id, user_role"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                required
                                             />
-                                            <span className="text-sm font-medium text-gray-700">Enable JWT-based rate limiting</span>
-                                        </label>
-                                        <p className="text-xs text-gray-500 mt-1 ml-6">
-                                            Rate limit based on JWT claims from Authorization header instead of IP address
-                                        </p>
-                                    </div>
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                Standard claims: sub, iss, aud, exp, iat, etc. Custom claims are also supported.
+                                                Multiple claims will be concatenated.
+                                            </p>
+                                        </div>
 
-                                    {formData.jwtEnabled && (
-                                        <>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                    JWT Claims (comma-separated)
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    name="jwtClaims"
-                                                    value={formData.jwtClaims}
-                                                    onChange={handleInputChange}
-                                                    placeholder="e.g., sub, tenant_id, user_role"
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                                    required={formData.jwtEnabled}
-                                                />
-                                                <p className="text-xs text-gray-500 mt-1">
-                                                    Standard claims: sub, iss, aud, exp, iat, etc. Custom claims are also supported.
-                                                    Multiple claims will be concatenated.
-                                                </p>
-                                            </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Claim Separator
+                                            </label>
+                                            <input
+                                                type="text"
+                                                name="jwtClaimSeparator"
+                                                value={formData.jwtClaimSeparator}
+                                                onChange={handleInputChange}
+                                                placeholder=":"
+                                                maxLength="10"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                            />
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                Character(s) used to join multiple claim values (default: ":")
+                                            </p>
+                                        </div>
 
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                    Claim Separator
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    name="jwtClaimSeparator"
-                                                    value={formData.jwtClaimSeparator}
-                                                    onChange={handleInputChange}
-                                                    placeholder=":"
-                                                    maxLength="10"
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                                />
-                                                <p className="text-xs text-gray-500 mt-1">
-                                                    Character(s) used to join multiple claim values (default: ":")
-                                                </p>
-                                            </div>
-
-                                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                                                <div className="flex items-start space-x-2">
-                                                    <AlertTriangle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                                                    <div className="text-sm text-blue-800">
-                                                        <p className="font-semibold">JWT Rate Limiting Behavior</p>
-                                                        <p className="mt-1">
-                                                            When enabled, the gateway will extract the specified claims from the JWT token 
-                                                            in the Authorization header. If the token is missing or invalid, the system will 
-                                                            fall back to IP-based rate limiting.
-                                                        </p>
-                                                        <p className="mt-2">
-                                                            <strong>Example:</strong> Claims "sub, tenant_id" with values "user123" and "acme-corp" 
-                                                            will create identifier: "user123:acme-corp"
-                                                        </p>
-                                                    </div>
+                                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                            <div className="flex items-start space-x-2">
+                                                <AlertTriangle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                                                <div className="text-sm text-blue-800">
+                                                    <p className="font-semibold">JWT Rate Limiting Behavior</p>
+                                                    <p className="mt-1">
+                                                        When enabled, the gateway will extract the specified claims from the JWT token 
+                                                        in the Authorization header. If the token is missing or invalid, the system will 
+                                                        fall back to IP-based rate limiting.
+                                                    </p>
+                                                    <p className="mt-2">
+                                                        <strong>Example:</strong> Claims "sub, tenant_id" with values "user123" and "acme-corp" 
+                                                        will create identifier: "user123:acme-corp"
+                                                    </p>
                                                 </div>
                                             </div>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Body-based Rate Limiting */}
-                            <div className="border-t border-gray-200 pt-4">
-                                <h3 className="text-sm font-semibold text-gray-700 mb-3">Body-based Rate Limiting</h3>
-                                
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="flex items-center space-x-2">
-                                            <input
-                                                type="checkbox"
-                                                name="bodyLimitEnabled"
-                                                checked={formData.bodyLimitEnabled}
-                                                onChange={handleInputChange}
-                                                className="w-4 h-4 rounded border-gray-300"
-                                            />
-                                            <span className="text-sm font-medium text-gray-700">Enable body-based rate limiting</span>
-                                        </label>
-                                        <p className="text-xs text-gray-500 mt-1 ml-6">
-                                            Rate limit based on field from request body (e.g., user_id, api_key, cookie value)
-                                        </p>
+                                        </div>
                                     </div>
+                                </div>
+                            )}
 
-                                    {formData.bodyLimitEnabled && (
-                                        <>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                    Body Field Path
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    name="bodyFieldPath"
-                                                    value={formData.bodyFieldPath}
-                                                    onChange={handleInputChange}
-                                                    placeholder="e.g., user_id, api_key, user.id"
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                                    required={formData.bodyLimitEnabled}
-                                                />
-                                                <p className="text-xs text-gray-500 mt-1">
-                                                    JSONPath or simple field name to extract from request body. Supports nested fields with dot notation.
-                                                </p>
-                                            </div>
+                            {/* Header Configuration */}
+                            {formData.rateLimitType === 'HEADER' && (
+                                <div className="border-t border-gray-200 pt-4">
+                                    <h3 className="text-sm font-semibold text-gray-700 mb-3">Header Configuration</h3>
+                                    
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Header Name
+                                            </label>
+                                            <input
+                                                type="text"
+                                                name="headerName"
+                                                value={formData.headerName}
+                                                onChange={handleInputChange}
+                                                placeholder="e.g., X-API-Key, X-User-Id, Authorization"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                required
+                                            />
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                HTTP header name to extract rate limit identifier from
+                                            </p>
+                                        </div>
 
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                    Limit Type
-                                                </label>
-                                                <select
-                                                    name="bodyLimitType"
-                                                    value={formData.bodyLimitType}
-                                                    onChange={handleInputChange}
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                                >
-                                                    <option value="replace_ip">Replace IP (use body field only)</option>
-                                                    <option value="combine_with_ip">Combine with IP (IP + body field)</option>
-                                                </select>
-                                                <p className="text-xs text-gray-500 mt-1">
-                                                    Choose how to use the body field value for rate limiting
-                                                </p>
-                                            </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Limit Type
+                                            </label>
+                                            <select
+                                                name="headerLimitType"
+                                                value={formData.headerLimitType}
+                                                onChange={handleInputChange}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                            >
+                                                <option value="replace_ip">Replace IP (use header value only)</option>
+                                                <option value="combine_with_ip">Combine with IP (IP + header value)</option>
+                                            </select>
+                                        </div>
 
-                                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                                                <div className="flex items-start space-x-2">
-                                                    <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                                                    <div className="text-sm text-amber-800">
-                                                        <p className="font-semibold">Body-based Rate Limiting Behavior</p>
-                                                        <p className="mt-1">
-                                                            When enabled, the gateway will extract the specified field from the request body.
-                                                            If the field is missing or body is invalid, the system will fall back to IP-based rate limiting.
-                                                        </p>
-                                                        <p className="mt-2">
-                                                            <strong>Example:</strong> Field "user_id" with value "user123" in replace_ip mode
-                                                            will rate limit by "user123" instead of client IP.
-                                                        </p>
-                                                    </div>
+                                        <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                                            <div className="flex items-start space-x-2">
+                                                <AlertTriangle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                                                <div className="text-sm text-green-800">
+                                                    <p className="font-semibold">Header-based Rate Limiting Behavior</p>
+                                                    <p className="mt-1">
+                                                        Extracts value from the specified HTTP header.
+                                                        Falls back to IP-based if header is missing.
+                                                    </p>
                                                 </div>
                                             </div>
-                                        </>
-                                    )}
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
+                            )}
+
+                            {/* Cookie Configuration */}
+                            {formData.rateLimitType === 'COOKIE' && (
+                                <div className="border-t border-gray-200 pt-4">
+                                    <h3 className="text-sm font-semibold text-gray-700 mb-3">Cookie Configuration</h3>
+                                    
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Cookie Name
+                                            </label>
+                                            <input
+                                                type="text"
+                                                name="cookieName"
+                                                value={formData.cookieName}
+                                                onChange={handleInputChange}
+                                                placeholder="e.g., session_id, user_token, JSESSIONID"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                required
+                                            />
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                Cookie name to extract rate limit identifier from
+                                            </p>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Limit Type
+                                            </label>
+                                            <select
+                                                name="cookieLimitType"
+                                                value={formData.cookieLimitType}
+                                                onChange={handleInputChange}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                            >
+                                                <option value="replace_ip">Replace IP (use cookie value only)</option>
+                                                <option value="combine_with_ip">Combine with IP (IP + cookie value)</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                                            <div className="flex items-start space-x-2">
+                                                <AlertTriangle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
+                                                <div className="text-sm text-orange-800">
+                                                    <p className="font-semibold">Cookie-based Rate Limiting Behavior</p>
+                                                    <p className="mt-1">
+                                                        Extracts value from the specified cookie.
+                                                        Falls back to IP-based if cookie is missing.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Body Configuration */}
+                            {formData.rateLimitType === 'BODY' && (
+                                <div className="border-t border-gray-200 pt-4">
+                                    <h3 className="text-sm font-semibold text-gray-700 mb-3">Body Field Configuration</h3>
+                                    
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Body Field Path
+                                            </label>
+                                            <input
+                                                type="text"
+                                                name="bodyFieldPath"
+                                                value={formData.bodyFieldPath}
+                                                onChange={handleInputChange}
+                                                placeholder="e.g., user_id, api_key, user.id (JSON), //user/id (XML)"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                required
+                                            />
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                For JSON: dot notation (user.id). For Forms/Multipart: field name (user_id). For XML: XPath (//user/id).
+                                            </p>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Content Type
+                                            </label>
+                                            <select
+                                                name="bodyContentType"
+                                                value={formData.bodyContentType}
+                                                onChange={handleInputChange}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                            >
+                                                <option value="application/json">JSON (application/json)</option>
+                                                <option value="application/x-www-form-urlencoded">Form Data (application/x-www-form-urlencoded)</option>
+                                                <option value="application/xml">XML (application/xml)</option>
+                                                <option value="multipart/form-data">Multipart Form Data (multipart/form-data)</option>
+                                            </select>
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                Expected content type of the request body
+                                            </p>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Limit Type
+                                            </label>
+                                            <select
+                                                name="bodyLimitType"
+                                                value={formData.bodyLimitType}
+                                                onChange={handleInputChange}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                            >
+                                                <option value="replace_ip">Replace IP (use body field only)</option>
+                                                <option value="combine_with_ip">Combine with IP (IP + body field)</option>
+                                            </select>
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                Choose how to use the body field value for rate limiting
+                                            </p>
+                                        </div>
+
+                                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                            <div className="flex items-start space-x-2">
+                                                <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                                                <div className="text-sm text-amber-800">
+                                                    <p className="font-semibold">Body-based Rate Limiting Behavior</p>
+                                                    <p className="mt-1">
+                                                        When enabled, the gateway will extract the specified field from the request body.
+                                                        If the field is missing or body is invalid, the system will fall back to IP-based rate limiting.
+                                                    </p>
+                                                    <p className="mt-2">
+                                                        <strong>Example:</strong> Field "user_id" with value "user123" in replace_ip mode
+                                                        will rate limit by "user123" instead of client IP.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Queue Configuration */}
                             <div className="border-t border-gray-200 pt-4">

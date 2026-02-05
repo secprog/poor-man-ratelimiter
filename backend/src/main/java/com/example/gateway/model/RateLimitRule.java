@@ -19,6 +19,7 @@ public class RateLimitRule {
     private int allowedRequests;
     private int windowSeconds;
     private boolean active;
+    private int priority;  // Order of rule evaluation (lower = higher priority)
     
     // Leaky bucket / queueing configuration
     private boolean queueEnabled;
@@ -34,6 +35,7 @@ public class RateLimitRule {
     private boolean bodyLimitEnabled;
     private String bodyFieldPath;  // JSONPath or simple field name (e.g., "user_id", "api_key", "user.id")
     private String bodyLimitType;  // "replace_ip" (use body value instead of IP), "combine_with_ip" (combine IP + field)
+    private String bodyContentType;  // Expected content type (e.g., "application/json", "application/x-www-form-urlencoded", "application/xml", "multipart/form-data")
     
     // Header-based rate limiting configuration
     private boolean headerLimitEnabled;

@@ -7,7 +7,7 @@ import com.example.gateway.model.TrafficLog;
 import com.example.gateway.repository.RateLimitRuleRepository;
 import com.example.gateway.repository.RequestCounterRepository;
 import com.example.gateway.repository.TrafficLogRepository;
-import com.example.gateway.util.JsonPathExtractor;
+import com.example.gateway.util.BodyFieldExtractor;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -69,8 +69,10 @@ public class RateLimiterService {
                 .collectList()
                 .doOnNext(rules -> {
                     activeRules.clear();
+                    // Sort by priority (lower number = higher priority)
+                    rules.sort((r1, r2) -> Integer.compare(r1.getPriority(), r2.getPriority()));
                     activeRules.addAll(rules);
-                    log.info("Loaded {} active rate limit rules", rules.size());
+                    log.info("Loaded {} active rate limit rules (sorted by priority)", rules.size());
                 })
                 .then();
     }
@@ -78,6 +80,7 @@ public class RateLimiterService {
     /**
      * Check if a request is allowed based on rate limiting rules.
      * Supports both IP-based and JWT-based rate limiting.
+     * This is a convenience method that doesn't support header/cookie extraction.
      *
      * @param path Request path
      * @param clientIp Client IP address
@@ -85,7 +88,8 @@ public class RateLimiterService {
      * @return RateLimitResult indicating if request is allowed, and any delay
      */
     public Mono<RateLimitResult> isAllowed(String path, String clientIp, String authHeader) {
-        return isAllowed(path, clientIp, authHeader, (byte[]) null);
+        // Use a minimal exchange object - this won't support header/cookie extraction
+        return isAllowed(null, path, clientIp, authHeader, (byte[]) null);
     }
 
     /**
@@ -114,7 +118,8 @@ public class RateLimiterService {
         // Extract body field value if body-based limiting is enabled
         String bodyFieldValue = null;
         if (matchedRule.isBodyLimitEnabled() && matchedRule.getBodyFieldPath() != null && bodyBytes != null) {
-            bodyFieldValue = extractBodyField(bodyBytes, matchedRule.getBodyFieldPath());
+            bodyFieldValue = extractBodyField(exchange, bodyBytes, matchedRule.getBodyFieldPath(), 
+                    matchedRule.getBodyContentType());
         }
 
         // Determine the identifier to use for rate limiting
@@ -143,7 +148,7 @@ public class RateLimiterService {
      */
     private String determineIdentifier(ServerWebExchange exchange, RateLimitRule rule, String clientIp, String authHeader, String bodyFieldValue) {
         // Check header-based limiting first (highest priority)
-        if (rule.isHeaderLimitEnabled() && rule.getHeaderName() != null && !rule.getHeaderName().isBlank()) {
+        if (exchange != null && rule.isHeaderLimitEnabled() && rule.getHeaderName() != null && !rule.getHeaderName().isBlank()) {
             String headerValue = exchange.getRequest().getHeaders().getFirst(rule.getHeaderName());
             if (headerValue != null && !headerValue.isBlank()) {
                 String limitType = rule.getHeaderLimitType() != null ? rule.getHeaderLimitType() : "replace_ip";
@@ -165,7 +170,7 @@ public class RateLimiterService {
         }
         
         // Check cookie-based limiting second
-        if (rule.isCookieLimitEnabled() && rule.getCookieName() != null && !rule.getCookieName().isBlank()) {
+        if (exchange != null && rule.isCookieLimitEnabled() && rule.getCookieName() != null && !rule.getCookieName().isBlank()) {
             HttpCookie cookie = exchange.getRequest().getCookies().getFirst(rule.getCookieName());
             if (cookie != null && cookie.getValue() != null && !cookie.getValue().isBlank()) {
                 String cookieValue = cookie.getValue();
@@ -195,13 +200,13 @@ public class RateLimiterService {
                 if ("combine_with_ip".equalsIgnoreCase(limitType)) {
                     // Combine IP and body field value
                     String identifier = clientIp + ":" + bodyFieldValue;
-                    log.debug("Using body+IP combined identifier for rate limiting: {} (field: {})", 
-                            identifier, rule.getBodyFieldPath());
+                    log.debug("Using body+IP combined identifier for rate limiting: {} (field: {}, content-type: {})", 
+                            identifier, rule.getBodyFieldPath(), rule.getBodyContentType());
                     return identifier;
                 } else {
                     // replace_ip: use body field value instead of IP
-                    log.debug("Using body-based identifier for rate limiting: {} (field: {})", 
-                            bodyFieldValue, rule.getBodyFieldPath());
+                    log.debug("Using body-based identifier for rate limiting: {} (field: {}, content-type: {})", 
+                            bodyFieldValue, rule.getBodyFieldPath(), rule.getBodyContentType());
                     return bodyFieldValue;
                 }
             } else {
@@ -369,13 +374,26 @@ public class RateLimiterService {
     }
 
     /**
-     * Extract a field value from JSON request body using dot-notation path.
+     * Extract a field value from request body based on content type.
      *
+     * @param exchange ServerWebExchange for accessing headers (content-type)
      * @param bodyBytes Raw request body bytes
-     * @param fieldPath Dot-notation path (e.g., "user_id", "api_key", "user.id")
-     * @return Extracted field value, or null if not found or body is not valid JSON
+     * @param fieldPath Field path (dot-notation for JSON, field name for forms/multipart, XPath for XML)
+     * @param expectedContentType Expected content type from rule configuration
+     * @return Extracted field value, or null if not found or parsing fails
      */
-    private String extractBodyField(byte[] bodyBytes, String fieldPath) {
-        return JsonPathExtractor.extractField(bodyBytes, fieldPath);
+    private String extractBodyField(ServerWebExchange exchange, byte[] bodyBytes, String fieldPath, String expectedContentType) {
+        // Get actual content type from request headers
+        String actualContentType = null;
+        if (exchange != null && exchange.getRequest() != null) {
+            actualContentType = exchange.getRequest().getHeaders().getFirst("Content-Type");
+        }
+        
+        // Use expected content type from rule if available, otherwise use actual from request
+        String contentTypeToUse = (expectedContentType != null && !expectedContentType.isBlank()) 
+                ? expectedContentType 
+                : actualContentType;
+        
+        return BodyFieldExtractor.extractField(bodyBytes, fieldPath, contentTypeToUse);
     }
 }

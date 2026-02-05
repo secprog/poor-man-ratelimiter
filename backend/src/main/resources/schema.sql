@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS rate_limit_rules (
     allowed_requests INTEGER NOT NULL,
     window_seconds INTEGER NOT NULL,
     active BOOLEAN DEFAULT TRUE,
+    priority INTEGER DEFAULT 0,
     queue_enabled BOOLEAN DEFAULT FALSE,
     max_queue_size INT DEFAULT 0,
     delay_per_request_ms INT DEFAULT 100,
@@ -29,6 +30,7 @@ CREATE TABLE IF NOT EXISTS rate_limit_rules (
     body_limit_enabled BOOLEAN DEFAULT FALSE,
     body_field_path VARCHAR(255),  -- JSONPath or simple field name (e.g., "user_id", "api_key", "user.id")
     body_limit_type VARCHAR(20) DEFAULT 'replace_ip',  -- "replace_ip" or "combine_with_ip"
+    body_content_type VARCHAR(100) DEFAULT 'application/json',  -- Expected content type: json, form, xml, multipart
     -- Header-based rate limiting fields
     header_limit_enabled BOOLEAN DEFAULT FALSE,
     header_name VARCHAR(255),  -- Header name to extract value from (e.g., "X-API-Key", "X-User-Id")

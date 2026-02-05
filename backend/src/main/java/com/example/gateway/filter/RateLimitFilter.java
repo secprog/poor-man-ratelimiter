@@ -42,23 +42,17 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
         String method = exchange.getRequest().getMethod() != null ? exchange.getRequest().getMethod().toString() : "";
         boolean hasBody = ("POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method));
         
-        // If request has body and is JSON, read it for body-based rate limiting
-        if (hasBody && isJsonContent(exchange)) {
+        // If request has body, read it for body-based rate limiting
+        if (hasBody) {
             return readBody(exchange)
                     .then(performRateLimitCheck(exchange, chain, path, ip, authHeader));
         } else {
-            // No body or not JSON, proceed directly
+            // No body, proceed directly
             return performRateLimitCheck(exchange, chain, path, ip, authHeader);
         }
     }
 
-    /**
-     * Check if the request content-type is JSON
-     */
-    private boolean isJsonContent(ServerWebExchange exchange) {
-        String contentType = exchange.getRequest().getHeaders().getFirst("Content-Type");
-        return contentType != null && contentType.contains("application/json");
-    }
+
 
     /**
      * Read and cache the request body for later access by the rate limiter service
