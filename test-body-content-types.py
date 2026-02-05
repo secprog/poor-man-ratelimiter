@@ -77,7 +77,7 @@ def test_form_data():
             data={"api_key": key, "action": "test"},
             timeout=10
         )
-        print(f"  Request with api_key={key}: {response.status_code}")
+        print(f"  Request with api_key=[REDACTED]: {response.status_code}")
         time.sleep(0.5)
     
     # Clean up
