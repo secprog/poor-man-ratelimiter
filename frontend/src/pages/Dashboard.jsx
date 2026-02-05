@@ -91,12 +91,15 @@ export default function Dashboard() {
 
     const computeWindowTotals = (points, windowMs) => {
         if (windowMs === 0) {
-            const latest = [...points]
-                .filter(point => !Number.isNaN(new Date(point.timestamp).getTime()))
-                .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+            // "Now" mode: only show current minute bucket
+            const currentMinute = new Date();
+            currentMinute.setSeconds(0, 0);
+            const currentTimestamp = currentMinute.getTime();
+            
+            const currentBucket = points.find(point => point.timestamp === currentTimestamp);
             return {
-                allowed: latest?.allowed || 0,
-                blocked: latest?.blocked || 0
+                allowed: currentBucket?.allowed || 0,
+                blocked: currentBucket?.blocked || 0
             };
         }
 
