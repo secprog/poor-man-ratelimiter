@@ -1,6 +1,5 @@
 package com.example.gateway.controller;
 
-import com.example.gateway.filter.AntiBotFilter;
 import com.example.gateway.model.SystemConfig;
 import com.example.gateway.service.ConfigurationService;
 import lombok.RequiredArgsConstructor;
@@ -11,7 +10,7 @@ import reactor.core.publisher.Mono;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/admin/config")
+@RequestMapping("/poormansRateLimit/api/admin/config")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
 public class SystemConfigController {
@@ -24,8 +23,12 @@ public class SystemConfigController {
     }
 
     @PostMapping("/{key}")
-    public Mono<SystemConfig> updateConfig(@PathVariable String key, @RequestBody Map<String, String> payload) {
-        String value = payload.get("value");
-        return configService.updateConfig(key, value);
+    public Mono<SystemConfig> updateConfig(
+            @PathVariable String key,
+            @RequestBody Map<String, String> payload) {
+        return Mono.defer(() -> {
+            String value = payload.get("value");
+            return configService.updateConfig(key, value);
+        });
     }
 }

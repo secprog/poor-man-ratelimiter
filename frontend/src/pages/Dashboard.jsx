@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Activity, ShieldCheck, ShieldX, Settings } from 'lucide-react';
 import api from '../api';
+import adminApi from '../admin-api';
 import analyticsWs from '../utils/websocket';
 
 export default function Dashboard() {
@@ -93,7 +94,7 @@ export default function Dashboard() {
 
     const fetchTrafficLogs = async () => {
         try {
-            const res = await api.get('/analytics/traffic?limit=100');
+            const res = await adminApi.get('/admin/analytics/traffic?limit=100');
             setTrafficLogs(res.data || []);
         } catch (err) {
             console.error("Failed to fetch traffic logs", err);

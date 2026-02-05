@@ -13,7 +13,7 @@ import reactor.core.publisher.Mono;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/admin/rules")
+@RequestMapping("/poormansRateLimit/api/admin/rules")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
 @Slf4j
@@ -40,14 +40,16 @@ public class RateLimitRuleController {
 
     @PostMapping
     public Mono<RateLimitRule> createRule(@RequestBody RateLimitRule rule) {
-        if (rule.getId() == null) {
-            rule.setId(UUID.randomUUID());
-        }
-        return ruleStore.save(rule)
-                .flatMap(saved -> routeSyncService.syncRule(saved)
-                        .then(rateLimiterService.refreshRules())
-                        .thenReturn(saved))
-                .doOnSuccess(saved -> log.info("Created new rate limit rule: {}", saved));
+        return Mono.defer(() -> {
+            if (rule.getId() == null) {
+                rule.setId(UUID.randomUUID());
+            }
+            return ruleStore.save(rule)
+                    .flatMap(saved -> routeSyncService.syncRule(saved)
+                            .then(rateLimiterService.refreshRules())
+                            .thenReturn(saved))
+                    .doOnSuccess(saved -> log.info("Created new rate limit rule: {}", saved));
+        });
     }
 
     @PutMapping("/{id}")
@@ -55,11 +57,11 @@ public class RateLimitRuleController {
         return ruleStore.findById(id)
                 .flatMap(existing -> {
                     rule.setId(id);
-                return ruleStore.save(rule)
-                    .flatMap(updated -> routeSyncService.syncRule(updated)
-                        .then(rateLimiterService.refreshRules())
-                        .thenReturn(updated))
-                    .doOnSuccess(updated -> log.info("Updated rate limit rule: {}", updated));
+                    return ruleStore.save(rule)
+                        .flatMap(updated -> routeSyncService.syncRule(updated)
+                            .then(rateLimiterService.refreshRules())
+                            .thenReturn(updated))
+                        .doOnSuccess(updated -> log.info("Updated rate limit rule: {}", updated));
                 });
     }
 
@@ -93,8 +95,10 @@ public class RateLimitRuleController {
 
     @PostMapping("/refresh")
     public Mono<Void> refreshRules() {
-        log.info("Manually refreshing rate limit rules");
-        return rateLimiterService.refreshRules();
+        return Mono.defer(() -> {
+            log.info("Manually refreshing rate limit rules");
+            return rateLimiterService.refreshRules();
+        });
     }
 
     @PatchMapping("/{id}/body-limit")
@@ -108,13 +112,13 @@ public class RateLimitRuleController {
                     rule.setBodyFieldPath(bodyLimitConfig.bodyFieldPath);
                     rule.setBodyLimitType(bodyLimitConfig.bodyLimitType);
                     
-                return ruleStore.save(rule)
-                            .doOnSuccess(updated -> {
-                                log.info("Updated body limit settings for rule {}: enabled={}, fieldPath={}, type={}", 
-                                        id, bodyLimitConfig.bodyLimitEnabled, bodyLimitConfig.bodyFieldPath, 
-                                        bodyLimitConfig.bodyLimitType);
-                                rateLimiterService.refreshRules().subscribe();
-                            });
+                    return ruleStore.save(rule)
+                                .doOnSuccess(updated -> {
+                                    log.info("Updated body limit settings for rule {}: enabled={}, fieldPath={}, type={}", 
+                                            id, bodyLimitConfig.bodyLimitEnabled, bodyLimitConfig.bodyFieldPath, 
+                                            bodyLimitConfig.bodyLimitType);
+                                    rateLimiterService.refreshRules().subscribe();
+                                });
                 });
     }
 

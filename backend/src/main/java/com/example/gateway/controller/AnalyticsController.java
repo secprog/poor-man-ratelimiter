@@ -10,7 +10,7 @@ import reactor.core.publisher.Mono;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/analytics")
+@RequestMapping("/poormansRateLimit/api/admin/analytics")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
 public class AnalyticsController {

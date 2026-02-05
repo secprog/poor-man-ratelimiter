@@ -36,7 +36,7 @@ export default function Settings() {
             const tokenData = await getFormToken();
             const headers = getAntiBotHeaders(tokenData);
 
-            await adminApi.post(`/config/${key}`, { value }, { headers });
+            await adminApi.post(`/admin/config/${key}`, { value }, { headers });
         } catch (err) {
             console.error(`Failed to update ${key}`, err);
             alert(`Failed to update setting: ${key}`);
@@ -55,7 +55,7 @@ export default function Settings() {
             const headers = getAntiBotHeaders(tokenData);
 
             await Promise.all(Object.entries(configs).map(([key, value]) =>
-                adminApi.post(`/config/${key}`, { value }, { headers })
+                adminApi.post(`/admin/config/${key}`, { value }, { headers })
             ));
             alert("Settings saved successfully!");
         } catch (err) {

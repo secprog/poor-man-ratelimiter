@@ -28,7 +28,16 @@ services:
     build: ./backend
     ports:
       - "8080:8080"              # Gateway on 8080 (public): 0.0.0.0:8080 -> backend:8080
-      - "127.0.0.1:9090:9090"    # Admin APIs on 9090 (localhost only): 127.0.0.1:9090 -> backend:9090
+                                 # - Handles public routes: /httpbin/**, /test/**, /metrics/**
+                                 # - ApiPortFilter blocks all /poormansRateLimit/api/admin/** (returns 404)
+                                 # - Contains RateLimitFilter, AntiBotFilter
+      - "127.0.0.1:9090:9090"    # CRITICAL: Admin APIs on 9090 (localhost only)
+                                 # - Format: 127.0.0.1:HOST_PORT:CONTAINER_PORT
+                                 # - ONLY accessible from localhost (127.0.0.1)
+                                 # - NOT exposed to any network interface (no 0.0.0.0 binding)
+                                 # - Port 9090 is unreachable from other hosts
+                                 # - Contains all /poormansRateLimit/api/admin/** endpoints
+                                 # - All requests validated by AdminAccessUtil.validateLocalhostOnly()
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
