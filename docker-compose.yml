@@ -26,15 +26,7 @@ services:
   backend:
     build: ./backend
     ports:
-      - "8080:8080"              # Gateway on 8080 (public): 0.0.0.0:8080 -> backend:8080
-                                 # - Handles public routes: /httpbin/**, /test/**, /metrics/**
-                                 # - ApiPortFilter blocks all /poormansRateLimit/api/admin/** (returns 404)
-                                 # - Contains RateLimitFilter, AntiBotFilter
-      - "127.0.0.1:9090:9090"    # CRITICAL SECURITY: Admin APIs on 9090 (localhost only via OS-level port binding)
-                                 # - OS-level TCP binding prevents external access (cannot be spoofed)
-                                 # - Only accessible from 127.0.0.1 (IPv4 loopback)
-                                 # - Contains all /poormansRateLimit/api/admin/** endpoints
-                                 # - Port 9090 unreachable from other hosts (connection refused at kernel level)
+      - "8080:8080"              # Gateway on 8080 (public): Rate limiting, anti-bot, request routing
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -47,12 +39,28 @@ services:
       - httpbin
     restart: always
 
+  admin-service:
+    build: ./admin-service
+    ports:
+      - "127.0.0.1:9090:9090"    # Admin APIs on 9090 (localhost only via OS-level port binding)
+                                 # - Separate Spring Boot app for isolation
+                                 # - CRUD operations on rate limit rules
+                                 # - Analytics via WebSocket
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-dev-only-change-me}
+    depends_on:
+      - redis
+    restart: always
+
   frontend:
     build: ./frontend
     ports:
       - "127.0.0.1:3000:80"  # Only listen on localhost
     depends_on:
       - backend
+      - admin-service
     restart: always
 
 volumes:

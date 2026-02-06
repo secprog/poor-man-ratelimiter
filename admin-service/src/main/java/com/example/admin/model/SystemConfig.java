@@ -1,4 +1,4 @@
-package com.example.gateway.dto;
+package com.example.admin.model;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class AnalyticsWebSocketMessage {
-    private String type;
-    private Object payload;
+public class SystemConfig {
+    private String key;
+    private String value;
 }

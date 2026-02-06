@@ -3,7 +3,6 @@ package com.example.gateway.service;
 import com.example.gateway.dto.AnalyticsUpdate;
 import com.example.gateway.store.RateLimitRuleStore;
 import com.example.gateway.store.RedisKeys;
-import com.example.gateway.websocket.AnalyticsBroadcaster;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.ReactiveHashOperations;
@@ -28,7 +27,6 @@ import java.util.concurrent.atomic.AtomicLong;
 public class AnalyticsService {
 
     private final ReactiveStringRedisTemplate redisTemplate;
-    private final AnalyticsBroadcaster broadcaster;
     private final RateLimitRuleStore ruleStore;
     private final ConfigurationService configService;
 
@@ -82,14 +80,7 @@ public class AnalyticsService {
                 error -> log.error("Failed to flush analytics stats", error));
     }
     
-    // Broadcast updates every 2 seconds
-    @Scheduled(fixedRate = 2000)
-    public void broadcastUpdates() {
-        getCurrentUpdate()
-            .doOnNext(update -> broadcaster.broadcastMessage("summary", update))
-                .doOnError(error -> log.error("Failed to broadcast analytics updates", error))
-                .subscribe();
-    }
+    // Note: Real-time broadcasting moved to admin-service WebSocket handler
 
         public Mono<AnalyticsUpdate> getCurrentUpdate() {
         return Mono.zip(getSummary(), ruleStore.findByActiveTrue().count())
